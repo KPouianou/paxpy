@@ -13,9 +13,12 @@ Depends on: types, indexer (via FunctionIndex).
 from __future__ import annotations
 
 import ast
+import builtins
 from pathlib import Path
 
 from paxpy.types import FunctionIndex, FunctionLocation
+
+_BUILTIN_NAMES: frozenset[str] = frozenset(dir(builtins))
 
 
 def resolve_call(
@@ -46,7 +49,21 @@ def resolve_call(
         List of candidate FunctionLocation targets. Empty only when the call
         is provably external (builtin or unindexed qualified name).
     """
-    raise NotImplementedError("TODO")
+    name = _extract_call_name(call_node)
+    if name is None:
+        return []
+
+    # Check index first — user-defined functions shadow builtins for our purposes
+    results = index.lookup(name)
+    if results:
+        return list(results)
+
+    # Not in the index: if it's a builtin, return empty (external, unresolvable)
+    if _is_builtin(name):
+        return []
+
+    # Unknown name not in index and not a builtin — return empty (external lib etc.)
+    return []
 
 
 def _extract_call_name(call_node: ast.Call) -> str | None:
@@ -62,7 +79,13 @@ def _extract_call_name(call_node: ast.Call) -> str | None:
     Returns:
         Function name string, or None.
     """
-    raise NotImplementedError("TODO")
+    match call_node.func:
+        case ast.Name(id=name):
+            return name
+        case ast.Attribute(attr=name):
+            return name
+        case _:
+            return None
 
 
 def _is_builtin(name: str) -> bool:
@@ -74,4 +97,4 @@ def _is_builtin(name: str) -> bool:
     Returns:
         True if the name is in builtins.__dict__.
     """
-    raise NotImplementedError("TODO")
+    return name in _BUILTIN_NAMES
