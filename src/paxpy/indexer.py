@@ -10,6 +10,7 @@ direct access to every file's parsed AST for downstream modules.
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 from paxpy.types import FunctionIndex, FunctionLocation
@@ -30,7 +31,20 @@ def build_index(repo_path: Path) -> FunctionIndex:
         FunctionIndex with .index populated (name → [FunctionLocation, ...])
         and .parsed_asts populated (Path → ast.Module).
     """
-    raise NotImplementedError("TODO")
+    index: dict[str, list[FunctionLocation]] = {}
+    parsed_asts: dict[Path, ast.Module] = {}
+
+    for filepath in sorted(repo_path.rglob("*.py")):
+        tree = _parse_file(filepath)
+        if tree is None:
+            continue
+
+        parsed_asts[filepath] = tree
+
+        for loc in _extract_functions(filepath, tree):
+            index.setdefault(loc.name, []).append(loc)
+
+    return FunctionIndex(index=index, parsed_asts=parsed_asts)
 
 
 def _parse_file(filepath: Path) -> ast.Module | None:
@@ -46,7 +60,20 @@ def _parse_file(filepath: Path) -> ast.Module | None:
         Parsed ast.Module with parent pointers set, or None if the file could
         not be parsed.
     """
-    raise NotImplementedError("TODO")
+    try:
+        source = filepath.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"paxpy/indexer: cannot read {filepath}: {exc}", file=sys.stderr)
+        return None
+
+    try:
+        tree = ast.parse(source, filename=str(filepath))
+    except SyntaxError as exc:
+        print(f"paxpy/indexer: syntax error in {filepath}: {exc}", file=sys.stderr)
+        return None
+
+    _add_parent_pointers(tree)
+    return tree
 
 
 def _add_parent_pointers(tree: ast.Module) -> None:
@@ -58,7 +85,10 @@ def _add_parent_pointers(tree: ast.Module) -> None:
     Args:
         tree: A parsed AST module.
     """
-    raise NotImplementedError("TODO")
+    tree._parent = None  # type: ignore[attr-defined]
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            child._parent = node  # type: ignore[attr-defined]
 
 
 def _extract_functions(
@@ -78,4 +108,19 @@ def _extract_functions(
     Returns:
         List of FunctionLocation for every function defined in the file.
     """
-    raise NotImplementedError("TODO")
+    locations: list[FunctionLocation] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            locations.append(
+                FunctionLocation(
+                    name=node.name,
+                    filepath=filepath,
+                    lineno=node.lineno,
+                    end_lineno=node.end_lineno,
+                    ast_node=node,
+                    branch=None,
+                )
+            )
+
+    return locations
