@@ -29,3 +29,7 @@ coverage.xml
 
 # Internal project documents — not for public repo
 paxpy_whitepaper*.md
+
+# Benchmark artifacts
+bench/bench.db
+bench/reports/
