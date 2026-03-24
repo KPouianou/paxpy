@@ -9,9 +9,17 @@ the SDG expansion in sdg_builder.
 
 from __future__ import annotations
 
+import ast
+import re
+import sys
 from pathlib import Path
 
+import git
+
 from paxpy.types import DiffResult, FunctionLocation
+
+# Regex to parse unified diff hunk headers: @@ -old +new[,count] @@
+_HUNK_RE = re.compile(r"^\+(\d+)(?:,(\d+))?")
 
 
 def parse_diffs(
@@ -37,7 +45,37 @@ def parse_diffs(
         DiffResult with seeds_a (functions changed by branch_a) and
         seeds_b (functions changed by branch_b).
     """
-    raise NotImplementedError("TODO")
+    repo = git.Repo(repo_path)
+
+    seeds_a = _collect_seeds(repo, repo_path, base, branch_a, "A")
+    seeds_b = _collect_seeds(repo, repo_path, base, branch_b, "B")
+
+    return DiffResult(seeds_a=seeds_a, seeds_b=seeds_b)
+
+
+def _collect_seeds(
+    repo: git.Repo,
+    repo_path: Path,
+    base: str,
+    branch: str,
+    tag: str,
+) -> list[FunctionLocation]:
+    """Collect FunctionLocation seeds for one branch against base."""
+    changed = _get_changed_ranges(repo_path, base, branch)
+    seeds: list[FunctionLocation] = []
+
+    for filepath, ranges in changed.items():
+        relative = filepath.relative_to(repo_path)
+        try:
+            source = repo.git.show(f"{branch}:{relative}")
+        except git.GitCommandError:
+            # File removed on this branch or other git error — skip
+            continue
+
+        locs = _map_ranges_to_functions(filepath, source, ranges, tag)
+        seeds.extend(locs)
+
+    return seeds
 
 
 def _get_changed_ranges(
@@ -57,7 +95,55 @@ def _get_changed_ranges(
     Returns:
         Mapping from absolute file path to list of changed line ranges.
     """
-    raise NotImplementedError("TODO")
+    repo = git.Repo(repo_path)
+    try:
+        diff_text = repo.git.diff(f"{base}...{branch}", unified=0)
+    except git.GitCommandError as exc:
+        print(f"paxpy/diff_parser: git diff failed: {exc}", file=sys.stderr)
+        return {}
+
+    result: dict[Path, list[tuple[int, int]]] = {}
+    current_file: Path | None = None
+
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            current_file = None
+            continue
+
+        if line.startswith("+++ "):
+            path_str = line[4:]
+            if path_str == "/dev/null":
+                current_file = None
+                continue
+            # Strip the "b/" prefix that git prepends
+            if path_str.startswith("b/"):
+                path_str = path_str[2:]
+            filepath = repo_path / path_str
+            if filepath.suffix == ".py":
+                current_file = filepath
+                result.setdefault(current_file, [])
+            else:
+                current_file = None
+            continue
+
+        if line.startswith("@@ ") and current_file is not None:
+            # Extract the +start[,count] part
+            parts = line.split(" ")
+            for part in parts:
+                if part.startswith("+"):
+                    m = _HUNK_RE.match(part)
+                    if m:
+                        start = int(m.group(1))
+                        count_str = m.group(2)
+                        count = int(count_str) if count_str is not None else 1
+                        if count == 0:
+                            # Pure deletion — no added lines
+                            break
+                        end = start + count - 1
+                        result[current_file].append((start, end))
+                    break
+
+    return result
 
 
 def _map_ranges_to_functions(
@@ -83,4 +169,36 @@ def _map_ranges_to_functions(
         Deduplicated list of FunctionLocation instances for functions that
         overlap with the changed ranges.
     """
-    raise NotImplementedError("TODO")
+    try:
+        tree = ast.parse(source, filename=str(filepath))
+    except SyntaxError:
+        return []
+
+    seen: set[tuple[str, int]] = set()
+    locations: list[FunctionLocation] = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+
+        func_start = node.lineno
+        func_end = node.end_lineno if node.end_lineno is not None else node.lineno
+
+        for range_start, range_end in ranges:
+            if func_start <= range_end and func_end >= range_start:
+                key = (node.name, node.lineno)
+                if key not in seen:
+                    seen.add(key)
+                    locations.append(
+                        FunctionLocation(
+                            name=node.name,
+                            filepath=filepath,
+                            lineno=node.lineno,
+                            end_lineno=node.end_lineno,
+                            ast_node=node,
+                            branch=branch,  # type: ignore[arg-type]
+                        )
+                    )
+                break  # Already added this function, no need to check more ranges
+
+    return locations
