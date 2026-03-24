@@ -172,6 +172,83 @@ Everything uses Python's `ast` module. No pytype, pyright, mypy, or runtime trac
 
 ---
 
+## Interference Pattern Taxonomy
+
+This section is the authoritative reference for anyone implementing or extending `detector.py`. The four patterns come from Santos de Jesus et al. (ICSE 2024) and Horwitz/Prins/Reps (TOPLAS 1989). The `ConflictType` enum in `types.py` encodes them; this section defines what each one means and how to recognise it in the graph.
+
+### DATA_FLOW (DF)
+
+**What it is.** One side writes a value that the other side reads. Classic producer-consumer interference. Developer A changes a function that produces a value; Developer B changes a function that consumes it (or vice versa). The value flows from the writer to the reader via data and/or call edges.
+
+**How it appears in the chop.** The interference path uses only `data_edges` and `call_edges` — no `control_edges` are required. The source node (A-seed) is a write site (assignment, return statement, or parameter definition) and the sink node (B-seed or a node it data-depends on) is a read site.
+
+**Classification signal.** If the path from source to sink traverses only data and call edges, and the sink node reads a value that originates at the source, classify as DATA_FLOW. This is the Tier 1 finding.
+
+**Canonical example.** A changes `decode_payload()` to return a `dict`. B adds `handle_request()` which calls `decode_payload()` and calls `.split()` on the result. The interference path is `decode_payload → handle_request` via a call edge.
+
+---
+
+### CONFLUENCE (CF)
+
+**What it is.** Both sides write values that flow into the same downstream computation — neither reads the other's output directly, but they collide at a shared sink. The sink accumulates contributions from both A and B, and those contributions were not designed to co-exist.
+
+**How it appears in the chop.** There exists a node `N` (possibly tagged `None` — not directly in either diff) such that `N` has incoming data edges from nodes traceable back to an A-seed AND from nodes traceable back to a B-seed. `N` is the confluence point. The path is detected when backward reachability from A-seeds and backward reachability from B-seeds share a common descendant.
+
+**Classification signal.** After finding the intersection node `N`, check `reverse_data_edges[N]`: if it has multiple predecessors, at least one reachable from an A-seed and at least one reachable from a B-seed (via the forward chop), classify as CONFLUENCE.
+
+**Canonical example.** A changes `helper()` to return a `dict`. B rewrites `aggregate()` to accumulate results from `helper()` differently. Both write into the same `total` variable — the confluence point. Neither directly depends on the other's output, but they meet at the accumulator.
+
+---
+
+### OVERRIDE_ASSIGNMENT (OA)
+
+**What it is.** Both sides write to the same state element (variable, attribute, dict key) with no intervening write from the base version. One silently overwrites the other's assignment. The programmer who wrote second did not know about the first write, so the combined behaviour is neither what A intended nor what B intended.
+
+**How it appears in the chop.** Both an A-seed and a B-seed define the same name. The chop path passes through that name binding. Crucially, there is no base-version write to that name between the A-write and the B-write — if the base already wrote it, neither branch is overriding the other, they are both updating a known value.
+
+**Classification signal.** Identify the defined name at both endpoints. If both write the same name and no base-version node on the path writes that name in between, classify as OVERRIDE_ASSIGNMENT. This requires inspecting `ast_node` at source and sink for `ast.Assign` / `ast.AugAssign` / `ast.AnnAssign` with the same target name.
+
+**Canonical example.** A changes `transform()` to return a new-style object. B rewrites `pipeline()` to call `transform()` and then immediately reassign `config = 0`, discarding the return. The `config` variable is written by A's callee and then overwritten by B — OA.
+
+---
+
+### CONTROL_DEPENDENCY (PDG)
+
+**What it is.** One side changes a condition (the predicate of an `if`, `while`, `for`, or `try`) that controls whether the other side's code executes. This is a control-mediated interference: A's change affects *whether* B's code runs, or B's change affects *whether* A's code runs, without either reading the other's data values.
+
+**How it appears in the chop.** The interference path includes at least one `control_edge`. The source is a predicate node (an `ast.If`, `ast.While`, `ast.For`, or `ast.Try` node tagged to one branch) and the sink is a statement in the controlled block tagged to the other branch — or vice versa. This pattern only emerges at Tier 2 (when `control_edges` are included in the BFS).
+
+**Classification signal.** A path qualifies as CONTROL_DEPENDENCY when it contains at least one `(u, v)` pair where `v ∈ control_edges[u]` AND `v` is not also reachable from `u` via `data_edges` or `call_edges`. (If both a control edge and a data edge exist between the same pair, the data interpretation takes precedence and the path is classified as DATA_FLOW or CONFLUENCE.) Tier-2-only findings — paths that appear with `use_control_edges=True` but not with `use_control_edges=False` — are classified as CONTROL_DEPENDENCY.
+
+**Canonical example.** A changes `action()` to return a dict. B tightens the guard in `check()` from `if x > 0` to `if x > 10`, controlling when `action()` is called. The predicate node in B controls the call site for A's function. This is only visible in Tier 2.
+
+---
+
+### Classification logic
+
+Once an interference path is found via the approximate chop, classify it as follows:
+
+1. **Check for pure control edges on the path.** For each consecutive `(u, v)` pair: if `v ∈ control_edges[u]` and `v ∉ data_edges[u]` and `v ∉ call_edges[u]`, mark the path as control-mediated. If any such pair exists → **CONTROL_DEPENDENCY**.
+
+2. **Check for confluence at the sink.** Inspect `reverse_data_edges[sink]`. If the sink has multiple incoming data-edge predecessors, and at least one is traceable to an A-seed and at least one to a B-seed → **CONFLUENCE**.
+
+3. **Check for override at the endpoints.** If both source and sink are assignment nodes writing the same name, and no base write to that name appears on the path between them → **OVERRIDE_ASSIGNMENT**.
+
+4. **Default.** If none of the above apply → **DATA_FLOW**.
+
+A single path may match multiple patterns. Report all that apply — the `ConflictType` on `InterferencePath` holds the most specific type; multi-pattern paths can be noted in the rationale field. When ambiguous between OA and DF, prefer OA (it is more specific and actionable).
+
+**Tier 1 findings** (data + call edges only): can be DF, CF, or OA.
+**Tier 2 findings** (adds control edges): new findings that did not appear at Tier 1 are CONTROL_DEPENDENCY.
+
+---
+
+### Python-specific modes not covered by this taxonomy
+
+The DF/CF/OA/PDG taxonomy was designed for Java. Known Python interference patterns outside this taxonomy — decorator-chain rebinding, comprehension scoping, generator exhaustion, context manager exception semantics, and protocol drift from duck typing — are documented in the whitepaper (Section 6.2) and are out of scope for the current implementation. Do not attempt to force these into the four categories; instead log them and track occurrence rates for future taxonomy extension.
+
+---
+
 ## Coding Conventions
 
 - **Python 3.10+**. Use `match` statements where they clarify intent.

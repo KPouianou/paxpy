@@ -26,3 +26,6 @@ coverage.xml
 .nox/
 *.log
 .DS_Store
+
+# Internal project documents — not for public repo
+paxpy_whitepaper*.md
