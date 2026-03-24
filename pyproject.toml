@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paxpy"
+version = "0.3.0"
+description = "Detects semantic merge conflicts via partial System Dependence Graphs and approximate program chopping"
+requires-python = ">=3.10"
+dependencies = [
+    "gitpython",
+]
+
+[project.scripts]
+paxpy = "paxpy.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paxpy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
