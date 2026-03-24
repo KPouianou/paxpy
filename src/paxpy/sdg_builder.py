@@ -57,6 +57,8 @@ def build_sdg(
     queue: deque[tuple[FunctionLocation, int]] = deque()
     # Track visited functions by (filepath, lineno) to avoid re-processing
     visited: set[tuple[str, int]] = set()
+    # Map (filepath, lineno) → entry NodeId for functions already processed
+    func_entry_ids: dict[tuple[str, int], NodeId] = {}
 
     def enqueue(loc: FunctionLocation, d: int) -> None:
         key = (str(loc.filepath), loc.lineno)
@@ -89,9 +91,10 @@ def build_sdg(
 
         _merge_pdg_into_sdg(sdg, pdg)
 
-        # Collect seed NodeIds (first node of the function body, or param node)
+        # Record entry node ID for this function so callers can link to it
         if pdg.nodes:
             entry_id = pdg.nodes[0].id
+            func_entry_ids[(str(loc.filepath), loc.lineno)] = entry_id
             if loc.branch == "A":
                 sdg.seeds_a.add(entry_id)
             elif loc.branch == "B":
@@ -102,20 +105,21 @@ def build_sdg(
             for node in pdg.nodes:
                 if node.ast_node is None:
                     continue
-                for call_node in ast.walk(node.ast_node):
-                    if not isinstance(call_node, ast.Call):
-                        continue
+                for call_node in _iter_calls_in_stmt(node.ast_node):
                     callees = resolve_call(call_node, index, loc.filepath)
                     for callee in callees:
                         callee_key = (str(callee.filepath), callee.lineno)
+                        # Enqueue callee for processing if not yet visited
                         if callee_key not in visited:
                             enqueue(callee, current_depth + 1)
-                            # Add call edge: caller node → callee entry node
-                            if callee.ast_node is not None:
-                                callee_pdg = build_pdg(callee.ast_node, callee.filepath)
-                                if callee_pdg.nodes:
-                                    callee_entry_id = callee_pdg.nodes[0].id
-                                    _add_call_edge(sdg, node.id, callee_entry_id)
+                        # Always add a call edge — even if callee was already visited
+                        # (e.g., callee is itself a seed from the other branch)
+                        if callee_key in func_entry_ids:
+                            _add_call_edge(sdg, node.id, func_entry_ids[callee_key])
+                        elif callee.ast_node is not None:
+                            callee_pdg = build_pdg(callee.ast_node, callee.filepath)
+                            if callee_pdg.nodes:
+                                _add_call_edge(sdg, node.id, callee_pdg.nodes[0].id)
 
     _build_reverse_edges(sdg)
     return sdg
@@ -199,3 +203,40 @@ def _build_reverse_edges(sdg: SDG) -> None:
     for src, targets in sdg.call_edges.items():
         for tgt in targets:
             sdg.reverse_call_edges.setdefault(tgt, set()).add(src)
+
+
+def _iter_calls_in_stmt(stmt_ast_node: ast.AST) -> list[ast.Call]:
+    """Yield ast.Call nodes that are directly in this statement's expression.
+
+    For compound statements (If/While/For/Try/With), only the controlling
+    expression is walked (the test, iter, or context), NOT the body statements.
+    Body statements are separate PDG nodes and will be walked when their own
+    node is processed — walking them here would create spurious call edges from
+    the predicate node to callees that live in the body.
+
+    For regular statements (Assign, Return, Expr, etc.) the entire node is
+    walked as usual.
+
+    Args:
+        stmt_ast_node: The AST node stored on a PDG node.
+
+    Returns:
+        List of ast.Call nodes found in the relevant sub-expression.
+    """
+    if isinstance(stmt_ast_node, ast.If | ast.While):
+        root = stmt_ast_node.test
+    elif isinstance(stmt_ast_node, ast.For):
+        root: ast.AST = stmt_ast_node.iter
+    elif isinstance(stmt_ast_node, ast.Try):
+        return []
+    elif isinstance(stmt_ast_node, ast.With):
+        calls: list[ast.Call] = []
+        for item in stmt_ast_node.items:
+            calls.extend(
+                n for n in ast.walk(item.context_expr) if isinstance(n, ast.Call)
+            )
+        return calls
+    else:
+        root = stmt_ast_node
+
+    return [n for n in ast.walk(root) if isinstance(n, ast.Call)]

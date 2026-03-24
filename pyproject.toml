@@ -17,13 +17,13 @@ paxpy = "paxpy.__main__:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/paxpy"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
 
-[dependency-groups]
-dev = [
-    "pytest",
-    "ruff",
+[tool.pytest.ini_options]
+testpaths = ["tests", "tests/integration"]
+markers = [
+    "integration: end-to-end pipeline tests using synthetic git repos",
 ]
 
 [tool.ruff]
