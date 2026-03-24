@@ -21,6 +21,8 @@ Depends on: types, sdg (the SDG dataclass).
 
 from __future__ import annotations
 
+from collections import deque
+
 from paxpy.types import SDG, ConflictType, InterferencePath, NodeId
 
 
@@ -38,7 +40,80 @@ def detect(sdg: SDG) -> list[InterferencePath]:
         List of InterferencePath, each describing one detected conflict path.
         Empty list if no interference is found.
     """
-    raise NotImplementedError("TODO")
+    if not sdg.seeds_a or not sdg.seeds_b:
+        return []
+
+    results: list[InterferencePath] = []
+    seen: set[tuple[NodeId, NodeId, str, int]] = set()
+
+    def add(path: InterferencePath) -> None:
+        key = (path.source_node, path.sink_node, path.conflict_type.value, path.tier)
+        if key not in seen:
+            seen.add(key)
+            results.append(path)
+
+    # Tier 1 — data + call edges only
+    tier1_ab = _approximate_chop(sdg, sdg.seeds_a, sdg.seeds_b, use_control_edges=False)
+    tier1_ba = _approximate_chop(sdg, sdg.seeds_b, sdg.seeds_a, use_control_edges=False)
+
+    tier1_paths_ab: set[tuple[NodeId, NodeId]] = set()
+    tier1_paths_ba: set[tuple[NodeId, NodeId]] = set()
+
+    for path in tier1_ab:
+        if len(path) >= 2:
+            ip = InterferencePath(
+                direction="A_to_B",
+                conflict_type=_infer_conflict_type(path, sdg),
+                tier=1,
+                path_nodes=path,
+                source_node=path[0],
+                sink_node=path[-1],
+            )
+            tier1_paths_ab.add((path[0], path[-1]))
+            add(ip)
+
+    for path in tier1_ba:
+        if len(path) >= 2:
+            ip = InterferencePath(
+                direction="B_to_A",
+                conflict_type=_infer_conflict_type(path, sdg),
+                tier=1,
+                path_nodes=path,
+                source_node=path[0],
+                sink_node=path[-1],
+            )
+            tier1_paths_ba.add((path[0], path[-1]))
+            add(ip)
+
+    # Tier 2 — all edges (data + control + call)
+    tier2_ab = _approximate_chop(sdg, sdg.seeds_a, sdg.seeds_b, use_control_edges=True)
+    tier2_ba = _approximate_chop(sdg, sdg.seeds_b, sdg.seeds_a, use_control_edges=True)
+
+    for path in tier2_ab:
+        if len(path) >= 2 and (path[0], path[-1]) not in tier1_paths_ab:
+            ip = InterferencePath(
+                direction="A_to_B",
+                conflict_type=ConflictType.CONTROL_DEPENDENCY,
+                tier=2,
+                path_nodes=path,
+                source_node=path[0],
+                sink_node=path[-1],
+            )
+            add(ip)
+
+    for path in tier2_ba:
+        if len(path) >= 2 and (path[0], path[-1]) not in tier1_paths_ba:
+            ip = InterferencePath(
+                direction="B_to_A",
+                conflict_type=ConflictType.CONTROL_DEPENDENCY,
+                tier=2,
+                path_nodes=path,
+                source_node=path[0],
+                sink_node=path[-1],
+            )
+            add(ip)
+
+    return results
 
 
 def _approximate_chop(
@@ -66,7 +141,29 @@ def _approximate_chop(
         List of paths. Each path is an ordered list of NodeIds from a source
         seed to a target seed.
     """
-    raise NotImplementedError("TODO")
+    # Forward BFS: predecessors map for path reconstruction
+    predecessors = _bfs_forward(sdg, sources, use_control_edges)
+
+    # Backward BFS: set of nodes that can reach a target
+    backward_reachable = _bfs_backward(sdg, targets, use_control_edges)
+
+    # Chop = intersection of forward-reachable and backward-reachable
+    chop = set(predecessors.keys()) & backward_reachable
+
+    if not chop:
+        return []
+
+    # Find target nodes that are in the chop and reconstruct paths to them
+    paths: list[list[NodeId]] = []
+    reached_targets = targets & chop
+
+    for target in reached_targets:
+        if target in predecessors:
+            path = _reconstruct_path(predecessors, target)
+            if path:
+                paths.append(path)
+
+    return paths
 
 
 def _bfs_forward(
@@ -84,7 +181,24 @@ def _bfs_forward(
     Returns:
         Dict mapping each reachable NodeId to its predecessor (None for seeds).
     """
-    raise NotImplementedError("TODO")
+    predecessors: dict[NodeId, NodeId | None] = {s: None for s in seeds}
+    queue: deque[NodeId] = deque(seeds)
+
+    while queue:
+        node = queue.popleft()
+
+        neighbors: set[NodeId] = set()
+        neighbors.update(sdg.data_edges.get(node, set()))
+        neighbors.update(sdg.call_edges.get(node, set()))
+        if use_control_edges:
+            neighbors.update(sdg.control_edges.get(node, set()))
+
+        for neighbor in neighbors:
+            if neighbor not in predecessors:
+                predecessors[neighbor] = node
+                queue.append(neighbor)
+
+    return predecessors
 
 
 def _bfs_backward(
@@ -102,19 +216,35 @@ def _bfs_backward(
     Returns:
         Set of all NodeIds reachable by backward traversal from seeds.
     """
-    raise NotImplementedError("TODO")
+    reachable: set[NodeId] = set(seeds)
+    queue: deque[NodeId] = deque(seeds)
+
+    while queue:
+        node = queue.popleft()
+
+        neighbors: set[NodeId] = set()
+        neighbors.update(sdg.reverse_data_edges.get(node, set()))
+        neighbors.update(sdg.reverse_call_edges.get(node, set()))
+        if use_control_edges:
+            neighbors.update(sdg.reverse_control_edges.get(node, set()))
+
+        for neighbor in neighbors:
+            if neighbor not in reachable:
+                reachable.add(neighbor)
+                queue.append(neighbor)
+
+    return reachable
 
 
 def _infer_conflict_type(path: list[NodeId], sdg: SDG) -> ConflictType:
     """Infer the conflict type from the edge types traversed on a path.
 
     Checks consecutive (u, v) pairs in the path against sdg.*_edges dicts:
-    - If any call edge is traversed and the path is otherwise data-only →
-      DATA_FLOW.
     - If any control edge is traversed → CONTROL_DEPENDENCY.
-    - If path passes through an assignment that overwrites a value → infer
+    - If multiple data sources converge at a node → CONFLUENCE.
+    - If path passes through an assignment that overwrites a value →
       OVERRIDE_ASSIGNMENT.
-    - Multiple data paths converging → CONFLUENCE.
+    - Otherwise → DATA_FLOW.
     Defaults to DATA_FLOW when ambiguous.
 
     Args:
@@ -124,7 +254,23 @@ def _infer_conflict_type(path: list[NodeId], sdg: SDG) -> ConflictType:
     Returns:
         The most specific applicable ConflictType.
     """
-    raise NotImplementedError("TODO")
+    has_control = False
+
+    for u, v in zip(path, path[1:], strict=False):
+        if v in sdg.control_edges.get(u, set()):
+            has_control = True
+
+    if has_control:
+        return ConflictType.CONTROL_DEPENDENCY
+
+    # Check if any sink node has multiple incoming data edges (confluence)
+    if len(path) >= 2:
+        sink = path[-1]
+        incoming_data = sdg.reverse_data_edges.get(sink, set())
+        if len(incoming_data) > 1:
+            return ConflictType.CONFLUENCE
+
+    return ConflictType.DATA_FLOW
 
 
 def _reconstruct_path(
@@ -140,4 +286,15 @@ def _reconstruct_path(
     Returns:
         Ordered list [source, ..., target]. Empty if target is not reachable.
     """
-    raise NotImplementedError("TODO")
+    if target not in predecessors:
+        return []
+
+    path: list[NodeId] = []
+    current: NodeId | None = target
+
+    while current is not None:
+        path.append(current)
+        current = predecessors.get(current)
+
+    path.reverse()
+    return path
