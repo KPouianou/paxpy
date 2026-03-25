@@ -154,16 +154,6 @@ def _build_df(
     def producer_a() -> str:       # branch A: returns dict
         return f"def {producer}(x):\n    return {{\"value\": x * 2, \"raw\": x}}"
 
-    def intermediates(names: list[str]) -> list[str]:
-        blocks = []
-        for i, fn in enumerate(names):
-            prev = chain[i]             # previous in chain (i=0 → producer)
-            call_prev = f"result = {prev}(x)"
-            extra = "\n    ".join(f"_ = {a}(x)" for a in aux)
-            body = f"    {call_prev}\n    {'    ' + extra if extra else ''}\n    return result"
-            blocks.append(f"def {fn}(x):\n{body.rstrip()}")
-        return blocks
-
     def consumer_base(prev: str) -> str:
         return f"def {consumer}(data):\n    result = {prev}(data)\n    return result"
 
@@ -193,11 +183,13 @@ def _build_df(
         # producer
         all_blocks[prod_file].append(prod_fn())
 
-        # intermediates
-        for i, mid in enumerate(mids):
+        # intermediates — one block per intermediate, each calling the previous in chain
+        for j, mid in enumerate(mids):
             mid_file = fn_to_file.get(mid, prod_file)
-            # i+1 because chain[0]=producer
-            all_blocks[mid_file].extend(intermediates(chain[1:i+2]))
+            prev = chain[j]  # j=0 → producer, j=1 → first mid, etc.
+            extra_lines = "".join(f"\n    _ = {a}(x)" for a in aux)
+            body = f"    result = {prev}(x){extra_lines}\n    return result"
+            all_blocks[mid_file].append(f"def {mid}(x):\n{body}")
 
         # consumer
         cons_file = fn_to_file.get(consumer, list(file_assign.keys())[-1])
