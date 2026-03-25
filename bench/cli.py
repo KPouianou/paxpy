@@ -40,7 +40,7 @@ def _cmd_seed(args: argparse.Namespace) -> None:
 def _cmd_run(args: argparse.Namespace) -> None:
     from rich.console import Console
 
-    from bench.report.display import show, write_markdown
+    from bench.reporting.display import show, write_markdown
     from bench.run.runner import run_all
 
     c = Console()
@@ -70,7 +70,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
 def _cmd_report(args: argparse.Namespace) -> None:
     from rich.console import Console
 
-    from bench.report.display import show, write_markdown
+    from bench.reporting.display import show, write_markdown
 
     c = Console()
     show(db_path=Path(args.db), run_id=args.run_id)
