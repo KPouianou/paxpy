@@ -96,15 +96,19 @@ def main() -> None:
         sys.exit(0)
 
     # 5. Analyse endpoints and build ConflictReports
+    from paxpy.types import Compatibility
+
     reports: list[ConflictReport] = []
     for path in paths:
         source_node = sdg.nodes.get(path.source_node)
         sink_node = sdg.nodes.get(path.sink_node)
 
-        source_ast = source_node.ast_node if source_node else None
-        sink_ast = sink_node.ast_node if sink_node else None
+        compatibility = analyze_endpoints(path, source_node, sink_node)
 
-        compatibility = analyze_endpoints(path, source_ast, sink_ast)
+        # Suppress findings where endpoint analysis confirms no incompatibility.
+        # compatible → suppress; suspicious/unknown/incompatible → report.
+        if compatibility.compatibility == Compatibility.COMPATIBLE:
+            continue
 
         report = ConflictReport(
             interference=path,
