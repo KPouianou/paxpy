@@ -45,9 +45,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--depth",
         type=int,
-        default=5,
+        default=3,
         metavar="N",
-        help="Call-graph expansion depth (default: 5)",
+        help="Call-graph expansion depth (default: 3)",
+    )
+    parser.add_argument(
+        "--max-call-hops",
+        type=int,
+        default=2,
+        dest="max_call_hops",
+        metavar="N",
+        help=(
+            "Suppress interference paths that cross more than N call-graph "
+            "boundaries. Lower values reduce false positives at the cost of "
+            "missing conflicts through deep call chains (default: 2)."
+        ),
     )
     parser.add_argument(
         "--format",
@@ -66,7 +78,7 @@ def main() -> None:
     repo_path = args.repo.resolve()
 
     # Lazy imports so startup is fast when --help is used
-    from paxpy.detector import detect
+    from paxpy.detector import detect, filter_by_call_hops
     from paxpy.diff_parser import parse_diffs
     from paxpy.endpoint_analyzer import analyze_endpoints
     from paxpy.indexer import build_index
@@ -87,8 +99,9 @@ def main() -> None:
     # 3. Build partial SDG
     sdg = build_sdg(diff_result, index, depth=args.depth)
 
-    # 4. Detect interference paths
+    # 4. Detect interference paths, then suppress long-hop incidental connectivity
     paths = detect(sdg)
+    paths = filter_by_call_hops(paths, sdg, max_hops=args.max_call_hops)
 
     if not paths:
         output = format_cli([]) if args.output_format == "cli" else json.dumps(format_json([]))

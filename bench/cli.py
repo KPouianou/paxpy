@@ -46,7 +46,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
     c = Console()
     c.print(
         f"\n[bold]Running[/]  db={args.db}  "
-        f"bucket={args.bucket}  depth={args.depth}"
+        f"bucket={args.bucket}  depth={args.depth}  "
+        f"max-call-hops={args.max_call_hops}"
     )
     if args.scenario:
         c.print(f"  filter: {args.scenario}*")
@@ -56,6 +57,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         db_path=Path(args.db),
         bucket=args.bucket,
         depth=args.depth,
+        max_call_hops=args.max_call_hops,
         scenario_filter=args.scenario or None,
         notes=args.notes or None,
     )
@@ -132,9 +134,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--depth",
         type=int,
-        default=5,
+        default=3,
         metavar="N",
-        help="Call-graph expansion depth passed to paxpy (default: 5).",
+        help="Call-graph expansion depth passed to paxpy (default: 3).",
+    )
+    p_run.add_argument(
+        "--max-call-hops",
+        type=int,
+        default=2,
+        dest="max_call_hops",
+        metavar="N",
+        help=(
+            "Suppress paths crossing more than N call-graph boundaries "
+            "(default: 2)."
+        ),
     )
     p_run.add_argument(
         "--scenario",

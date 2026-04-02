@@ -26,6 +26,54 @@ from collections import deque
 from paxpy.types import SDG, ConflictType, InterferencePath, NodeId
 
 
+def count_call_hops(path_nodes: list[NodeId], sdg: SDG) -> int:
+    """Count inter-procedural (call edge) boundaries crossed in a path.
+
+    Walks consecutive (u, v) pairs in path_nodes and counts how many are
+    connected via sdg.call_edges. This gives the number of function-call
+    boundaries the interference path crosses, which is a better discriminator
+    of genuine conflicts vs. incidental graph connectivity than raw node-hop
+    count.
+
+    Args:
+        path_nodes: Ordered list of NodeIds from source to sink.
+        sdg: The SDG whose call_edges are queried.
+
+    Returns:
+        Number of call edges in the path (0 = purely intra-procedural).
+    """
+    return sum(
+        1
+        for u, v in zip(path_nodes, path_nodes[1:], strict=False)
+        if v in sdg.call_edges.get(u, set())
+    )
+
+
+def filter_by_call_hops(
+    paths: list[InterferencePath],
+    sdg: SDG,
+    max_hops: int,
+) -> list[InterferencePath]:
+    """Suppress interference paths that cross too many call-graph boundaries.
+
+    Paths with many call hops represent incidental graph connectivity through
+    shared infrastructure (e.g. ORM core, framework utilities) rather than
+    genuine semantic interference between the two branches. Keeping only short
+    paths dramatically reduces false positives while retaining direct
+    caller/callee relationships where real conflicts occur.
+
+    Args:
+        paths: Detected interference paths from detect().
+        sdg: The SDG (needed to query call_edges).
+        max_hops: Maximum number of call edges allowed. Paths with more than
+            this many call-edge crossings are suppressed.
+
+    Returns:
+        Filtered list containing only paths with <= max_hops call edges.
+    """
+    return [p for p in paths if count_call_hops(p.path_nodes, sdg) <= max_hops]
+
+
 def detect(sdg: SDG) -> list[InterferencePath]:
     """Find all interference paths between the A and B seed sets.
 

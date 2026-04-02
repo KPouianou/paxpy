@@ -106,9 +106,9 @@ def _setup_scenario_repo(
 # ---------------------------------------------------------------------------
 
 
-def _run_pipeline(repo_path: Path, depth: int) -> dict:
+def _run_pipeline(repo_path: Path, depth: int, max_call_hops: int) -> dict:
     """Run the full paxpy pipeline and return a metrics dict."""
-    from paxpy.detector import detect
+    from paxpy.detector import count_call_hops, detect, filter_by_call_hops
     from paxpy.diff_parser import parse_diffs
     from paxpy.indexer import build_index
     from paxpy.sdg_builder import build_sdg
@@ -131,20 +131,22 @@ def _run_pipeline(repo_path: Path, depth: int) -> dict:
 
     t2 = time.perf_counter()
     paths  = detect(sdg)
+    paths  = filter_by_call_hops(paths, sdg, max_hops=max_call_hops)
     det_ms = int((time.perf_counter() - t2) * 1000)
 
     total_ms = int((time.perf_counter() - t0) * 1000)
 
-    detected      = len(paths) > 0
-    directions    = [p.direction for p in paths]
-    tiers         = [p.tier for p in paths]
+    detected       = len(paths) > 0
+    directions     = [p.direction for p in paths]
+    tiers          = [p.tier for p in paths]
     conflict_types = [p.conflict_type.value for p in paths]
 
-    # Shortest witness path length (call-graph edges) in the detected paths
+    # Shortest call-hop count across surviving paths (actual inter-procedural depth).
+    # Uses count_call_hops() so the value reflects call-graph edges, not raw node hops.
     call_depth_actual: int | None = None
     if paths:
-        lengths = [len(p.path_nodes) - 1 for p in paths if p.path_nodes]
-        call_depth_actual = min(lengths) if lengths else None
+        hops = [count_call_hops(p.path_nodes, sdg) for p in paths if p.path_nodes]
+        call_depth_actual = min(hops) if hops else None
 
     return dict(
         detected=detected,
@@ -170,7 +172,7 @@ def _classify(expected_conflict: bool, detected: bool) -> dict[str, int]:
     return dict(is_tp=tp, is_fp=fp, is_fn=fn, is_tn=tn)
 
 
-def _run_one(scenario: sqlite3.Row, depth: int) -> dict:
+def _run_one(scenario: sqlite3.Row, depth: int, max_call_hops: int) -> dict:
     """Execute paxpy on one scenario and return the full result dict."""
     base   = json.loads(scenario["base_source"])
     a_src  = json.loads(scenario["branch_a_source"])
@@ -181,7 +183,7 @@ def _run_one(scenario: sqlite3.Row, depth: int) -> dict:
         tmp_path = Path(tmp)
         try:
             _setup_scenario_repo(tmp_path, base, a_src, b_src)
-            metrics = _run_pipeline(tmp_path, depth)
+            metrics = _run_pipeline(tmp_path, depth, max_call_hops)
         except Exception:  # noqa: BLE001
             err = traceback.format_exc(limit=6)
             return dict(
@@ -273,6 +275,7 @@ def create_run(
     depth: int,
     scenario_filter: str | None,
     notes: str | None,
+    max_call_hops: int = 2,
 ) -> int:
     """Insert a new run record and return its id."""
     try:
@@ -285,10 +288,12 @@ def create_run(
     except Exception:  # noqa: BLE001
         git_commit = None
 
+    run_notes = f"max_call_hops={max_call_hops}" + (f"; {notes}" if notes else "")
+
     cur = conn.execute(
         """INSERT INTO runs (bucket, run_at, git_commit, depth, scenario_filter, notes)
            VALUES (?, ?, ?, ?, ?, ?)""",
-        (bucket, datetime.now(timezone.utc).isoformat(), git_commit, depth, scenario_filter, notes),
+        (bucket, datetime.now(timezone.utc).isoformat(), git_commit, depth, scenario_filter, run_notes),
     )
     conn.commit()
     return cur.lastrowid  # type: ignore[return-value]
@@ -353,13 +358,14 @@ def record_result(
 def run_all(
     db_path: Path = DEFAULT_DB,
     bucket: str = "all",
-    depth: int = 5,
+    depth: int = 3,
+    max_call_hops: int = 2,
     scenario_filter: str | None = None,
     notes: str | None = None,
 ) -> int:
     """Run paxpy on all pending scenarios, display live results, return run_id."""
     conn   = init_db(db_path)
-    run_id = create_run(conn, bucket, depth, scenario_filter, notes)
+    run_id = create_run(conn, bucket, depth, scenario_filter, notes, max_call_hops)
 
     scenarios = fetch_pending(conn, run_id, bucket, scenario_filter)
     if not scenarios:
@@ -375,7 +381,7 @@ def run_all(
 
     progress = Progress(
         SpinnerColumn(),
-        TextColumn(f"  [bold]run #{run_id}[/]  {bucket}  depth={depth}"),
+        TextColumn(f"  [bold]run #{run_id}[/]  {bucket}  depth={depth}  max-hops={max_call_hops}"),
         BarColumn(bar_width=44),
         MofNCompleteColumn(),
         TimeRemainingColumn(),
@@ -402,7 +408,7 @@ def run_all(
             if ct_key not in stats:
                 stats[ct_key] = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
 
-            result = _run_one(row, depth)
+            result = _run_one(row, depth, max_call_hops)
             record_result(conn, run_id, row["id"], result)
 
             if result["error"]:

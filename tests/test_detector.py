@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from paxpy.detector import _bfs_backward, _bfs_forward, _reconstruct_path, detect
-from paxpy.types import SDG, ConflictType, Node
+from paxpy.detector import (
+    _bfs_backward,
+    _bfs_forward,
+    _reconstruct_path,
+    count_call_hops,
+    detect,
+    filter_by_call_hops,
+)
+from paxpy.types import SDG, ConflictType, InterferencePath, Node
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -251,3 +258,138 @@ def test_detect_call_edge_tier1():
     results = detect(sdg)
     tier1 = [r for r in results if r.tier == 1]
     assert len(tier1) >= 1
+
+
+# ---------------------------------------------------------------------------
+# count_call_hops
+# ---------------------------------------------------------------------------
+
+
+def test_count_call_hops_no_calls():
+    """Pure data-edge path has 0 call hops."""
+    sdg = make_sdg(edges={"a:1:0": ["b:2:0"], "b:2:0": ["c:3:0"]})
+    assert count_call_hops(["a:1:0", "b:2:0", "c:3:0"], sdg) == 0
+
+
+def test_count_call_hops_single_call():
+    sdg = make_sdg(call_edges={"a:1:0": ["b:2:0"]})
+    assert count_call_hops(["a:1:0", "b:2:0"], sdg) == 1
+
+
+def test_count_call_hops_two_calls():
+    sdg = make_sdg(call_edges={"a:1:0": ["b:2:0"], "b:2:0": ["c:3:0"]})
+    assert count_call_hops(["a:1:0", "b:2:0", "c:3:0"], sdg) == 2
+
+
+def test_count_call_hops_mixed_edges():
+    """Data edge followed by call edge → 1 call hop."""
+    sdg = make_sdg(
+        edges={"a:1:0": ["b:2:0"]},
+        call_edges={"b:2:0": ["c:3:0"]},
+    )
+    assert count_call_hops(["a:1:0", "b:2:0", "c:3:0"], sdg) == 1
+
+
+def test_count_call_hops_single_node():
+    sdg = make_sdg()
+    assert count_call_hops(["a:1:0"], sdg) == 0
+
+
+def test_count_call_hops_empty_path():
+    sdg = make_sdg()
+    assert count_call_hops([], sdg) == 0
+
+
+# ---------------------------------------------------------------------------
+# filter_by_call_hops
+# ---------------------------------------------------------------------------
+
+
+def _make_path(nodes: list[str], direction: str = "A_to_B") -> InterferencePath:
+    return InterferencePath(
+        direction=direction,  # type: ignore[arg-type]
+        conflict_type=ConflictType.DATA_FLOW,
+        tier=1,
+        path_nodes=nodes,
+        source_node=nodes[0] if nodes else "",
+        sink_node=nodes[-1] if nodes else "",
+    )
+
+
+def test_filter_keeps_short_paths():
+    """Paths at or below max_hops are kept."""
+    sdg = make_sdg(call_edges={"a:1:0": ["b:2:0"]})
+    paths = [_make_path(["a:1:0", "b:2:0"])]  # 1 call hop
+    result = filter_by_call_hops(paths, sdg, max_hops=2)
+    assert len(result) == 1
+
+
+def test_filter_removes_long_paths():
+    """Paths exceeding max_hops are suppressed."""
+    sdg = make_sdg(
+        call_edges={"a:1:0": ["b:2:0"], "b:2:0": ["c:3:0"], "c:3:0": ["d:4:0"]}
+    )
+    paths = [_make_path(["a:1:0", "b:2:0", "c:3:0", "d:4:0"])]  # 3 call hops
+    result = filter_by_call_hops(paths, sdg, max_hops=2)
+    assert len(result) == 0
+
+
+def test_filter_keeps_exactly_at_threshold():
+    sdg = make_sdg(call_edges={"a:1:0": ["b:2:0"], "b:2:0": ["c:3:0"]})
+    paths = [_make_path(["a:1:0", "b:2:0", "c:3:0"])]  # exactly 2 call hops
+    result = filter_by_call_hops(paths, sdg, max_hops=2)
+    assert len(result) == 1
+
+
+def test_filter_mixed_keeps_short_removes_long():
+    sdg = make_sdg(
+        edges={"a:1:0": ["b:2:0"]},  # data edge only
+        call_edges={"x:1:0": ["y:2:0"], "y:2:0": ["z:3:0"], "z:3:0": ["w:4:0"]},
+    )
+    short = _make_path(["a:1:0", "b:2:0"])          # 0 call hops
+    long_ = _make_path(["x:1:0", "y:2:0", "z:3:0", "w:4:0"])  # 3 call hops
+    result = filter_by_call_hops([short, long_], sdg, max_hops=2)
+    assert result == [short]
+
+
+def test_filter_max_hops_zero_keeps_intra_procedural():
+    """max_hops=0 keeps only paths with no call edges (purely intra-procedural)."""
+    sdg = make_sdg(
+        edges={"a:1:0": ["b:2:0"]},
+        call_edges={"b:2:0": ["c:3:0"]},
+    )
+    intra = _make_path(["a:1:0", "b:2:0"])         # 0 call hops
+    inter = _make_path(["a:1:0", "b:2:0", "c:3:0"])  # 1 call hop
+    result = filter_by_call_hops([intra, inter], sdg, max_hops=0)
+    assert result == [intra]
+
+
+def test_filter_empty_paths_list():
+    sdg = make_sdg()
+    assert filter_by_call_hops([], sdg, max_hops=2) == []
+
+
+def test_filter_detect_integration():
+    """End-to-end: detect() + filter_by_call_hops keeps direct conflict, drops deep one."""
+    # Direct path: A → B (1 call hop) — should survive max_hops=2
+    sdg_direct = make_sdg(
+        call_edges={"a:1:0": ["b:2:0"]},
+        seeds_a={"a:1:0"},
+        seeds_b={"b:2:0"},
+    )
+    direct_paths = filter_by_call_hops(detect(sdg_direct), sdg_direct, max_hops=2)
+    assert len(direct_paths) >= 1
+
+    # Deep path: A → C → D → E → B (4 call hops) — should be suppressed at max_hops=2
+    sdg_deep = make_sdg(
+        call_edges={
+            "a:1:0": ["c:3:0"],
+            "c:3:0": ["d:4:0"],
+            "d:4:0": ["e:5:0"],
+            "e:5:0": ["b:2:0"],
+        },
+        seeds_a={"a:1:0"},
+        seeds_b={"b:2:0"},
+    )
+    deep_paths = filter_by_call_hops(detect(sdg_deep), sdg_deep, max_hops=2)
+    assert len(deep_paths) == 0
