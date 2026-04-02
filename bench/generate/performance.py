@@ -18,12 +18,12 @@ from bench.generate.parametric import ScenarioSpec, _fn, _src
 # (call_depth, fan_out) pairs chosen to hit approximate node count targets
 # nodes ≈ depth * (fan_out + 1) + 2  (rough estimate)
 _SIZE_CONFIGS = [
-    ("xs",    50,    4,   10),   # depth=4,  fan_out=10  → ~44 chain+aux nodes
-    ("sm",    150,   6,   20),   # depth=6,  fan_out=20  → ~126
-    ("md",    500,   8,   60),   # depth=8,  fan_out=60  → ~488
-    ("lg",    1500,  10,  145),  # depth=10, fan_out=145 → ~1460
-    ("xl",    5000,  12,  400),  # depth=12, fan_out=400 → ~4812
-    ("xxl",   15000, 15,  990),  # depth=15, fan_out=990 → ~14865
+    ("xs", 50, 4, 10),  # depth=4,  fan_out=10  → ~44 chain+aux nodes
+    ("sm", 150, 6, 20),  # depth=6,  fan_out=20  → ~126
+    ("md", 500, 8, 60),  # depth=8,  fan_out=60  → ~488
+    ("lg", 1500, 10, 145),  # depth=10, fan_out=145 → ~1460
+    ("xl", 5000, 12, 400),  # depth=12, fan_out=400 → ~4812
+    ("xxl", 15000, 15, 990),  # depth=15, fan_out=990 → ~14865
 ]
 
 _SEEDS = [42, 137, 999, 256, 512]
@@ -53,9 +53,9 @@ def _make_perf_scenario(
 
     # Build chain
     chain_len = call_depth + 1
-    prefixes  = ["lead"] + [f"mid{i}" for i in range(1, chain_len - 1)] + ["tail"]
-    chain     = [_fn(p, seed, i) for i, p in enumerate(prefixes)]
-    aux       = [_fn("aux", seed, 100 + i) for i in range(fan_out)]
+    prefixes = ["lead"] + [f"mid{i}" for i in range(1, chain_len - 1)] + ["tail"]
+    chain = [_fn(p, seed, i) for i, p in enumerate(prefixes)]
+    aux = [_fn("aux", seed, 100 + i) for i in range(fan_out)]
 
     producer = chain[0]
     consumer = chain[-1]
@@ -72,24 +72,15 @@ def _make_perf_scenario(
         for i, fn in enumerate(chain[1:-1]):
             prev = chain[i]
             extra = "\n    ".join(f"_ = {a}(x)" for a in aux[:3])  # call a few aux fns
-            blocks.append(
-                f"def {fn}(x):\n"
-                f"    result = {prev}(x)\n"
-                f"    {extra}\n"
-                f"    return result"
-            )
+            blocks.append(f"def {fn}(x):\n    result = {prev}(x)\n    {extra}\n    return result")
         # Consumer
         prev = chain[-2] if len(chain) > 1 else producer
-        blocks.append(
-            f"def {consumer}(data):\n"
-            f"    result = {prev}(data)\n"
-            f"    return result"
-        )
+        blocks.append(f"def {consumer}(data):\n    result = {prev}(data)\n    return result")
         return blocks
 
-    base_prod   = "return x * 2"
-    a_prod      = 'return {"value": x * 2, "raw": x}'
-    base_cons   = "    return result"
+    base_prod = "return x * 2"
+    a_prod = 'return {"value": x * 2, "raw": x}'
+    base_cons = "    return result"
     b_cons_extra = "    return result + 1"
 
     def make_source(prod_body: str, cons_extra: str) -> str:
@@ -102,9 +93,9 @@ def _make_perf_scenario(
             )
         return src
 
-    base_source  = make_source(base_prod, base_cons)
-    a_source     = make_source(a_prod,    base_cons)
-    b_source     = make_source(base_prod, b_cons_extra)
+    base_source = make_source(base_prod, base_cons)
+    a_source = make_source(a_prod, base_cons)
+    b_source = make_source(base_prod, b_cons_extra)
 
     return ScenarioSpec(
         name=name,

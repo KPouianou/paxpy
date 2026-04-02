@@ -220,8 +220,7 @@ def test_detect_data_path_is_tier1_not_tier2():
     results = detect(sdg)
     # The data path should be tier 1, not additionally reported as tier 2
     tier2_same_pair = [
-        r for r in results
-        if r.tier == 2 and r.source_node == "a:1:0" and r.sink_node == "b:2:0"
+        r for r in results if r.tier == 2 and r.source_node == "a:1:0" and r.sink_node == "b:2:0"
     ]
     assert len(tier2_same_pair) == 0
 
@@ -326,9 +325,7 @@ def test_filter_keeps_short_paths():
 
 def test_filter_removes_long_paths():
     """Paths exceeding max_hops are suppressed."""
-    sdg = make_sdg(
-        call_edges={"a:1:0": ["b:2:0"], "b:2:0": ["c:3:0"], "c:3:0": ["d:4:0"]}
-    )
+    sdg = make_sdg(call_edges={"a:1:0": ["b:2:0"], "b:2:0": ["c:3:0"], "c:3:0": ["d:4:0"]})
     paths = [_make_path(["a:1:0", "b:2:0", "c:3:0", "d:4:0"])]  # 3 call hops
     result = filter_by_call_hops(paths, sdg, max_hops=2)
     assert len(result) == 0
@@ -346,7 +343,7 @@ def test_filter_mixed_keeps_short_removes_long():
         edges={"a:1:0": ["b:2:0"]},  # data edge only
         call_edges={"x:1:0": ["y:2:0"], "y:2:0": ["z:3:0"], "z:3:0": ["w:4:0"]},
     )
-    short = _make_path(["a:1:0", "b:2:0"])          # 0 call hops
+    short = _make_path(["a:1:0", "b:2:0"])  # 0 call hops
     long_ = _make_path(["x:1:0", "y:2:0", "z:3:0", "w:4:0"])  # 3 call hops
     result = filter_by_call_hops([short, long_], sdg, max_hops=2)
     assert result == [short]
@@ -358,7 +355,7 @@ def test_filter_max_hops_zero_keeps_intra_procedural():
         edges={"a:1:0": ["b:2:0"]},
         call_edges={"b:2:0": ["c:3:0"]},
     )
-    intra = _make_path(["a:1:0", "b:2:0"])         # 0 call hops
+    intra = _make_path(["a:1:0", "b:2:0"])  # 0 call hops
     inter = _make_path(["a:1:0", "b:2:0", "c:3:0"])  # 1 call hop
     result = filter_by_call_hops([intra, inter], sdg, max_hops=0)
     assert result == [intra]

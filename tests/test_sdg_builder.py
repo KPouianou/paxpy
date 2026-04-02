@@ -24,8 +24,12 @@ def make_loc(name: str, filepath: Path, lineno: int, branch: str | None = None) 
     tree = ast.parse(src)
     func = tree.body[0]
     return FunctionLocation(
-        name=name, filepath=filepath, lineno=lineno, end_lineno=lineno + 1,
-        ast_node=func, branch=branch,  # type: ignore[arg-type]
+        name=name,
+        filepath=filepath,
+        lineno=lineno,
+        end_lineno=lineno + 1,
+        ast_node=func,
+        branch=branch,  # type: ignore[arg-type]
     )
 
 
@@ -141,8 +145,12 @@ def test_build_sdg_returns_sdg(tmp_path):
     write_py(tmp_path, "a.py", "def foo():\n    x = 1\n")
     index = build_index(tmp_path)
     loc = FunctionLocation(
-        name="foo", filepath=tmp_path / "a.py", lineno=1, end_lineno=2,
-        ast_node=None, branch="A",
+        name="foo",
+        filepath=tmp_path / "a.py",
+        lineno=1,
+        end_lineno=2,
+        ast_node=None,
+        branch="A",
     )
     diff = DiffResult(seeds_a=[loc])
     sdg = build_sdg(diff, index, depth=1)

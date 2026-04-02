@@ -30,7 +30,7 @@ from dataclasses import dataclass
 class ScenarioSpec:
     name: str
     bucket: str
-    conflict_type: str | None       # None for negatives
+    conflict_type: str | None  # None for negatives
     call_depth: int
     fan_out: int
     file_count: int
@@ -38,12 +38,12 @@ class ScenarioSpec:
     positive: bool
     random_seed: int
     complexity_tier: str
-    base_source: dict[str, str]     # filename → Python source
+    base_source: dict[str, str]  # filename → Python source
     branch_a_source: dict[str, str]
     branch_b_source: dict[str, str]
     expected_conflict: bool
     expected_direction: str | None  # "B_to_A" | "A_to_B" | None
-    expected_tier: int | None       # 1 | 2 | None
+    expected_tier: int | None  # 1 | 2 | None
     label_rationale: str
     mutation_a: str
     mutation_b: str
@@ -54,12 +54,12 @@ class ScenarioSpec:
 # Parameter grid
 # ---------------------------------------------------------------------------
 
-CALL_DEPTHS     = [1, 2, 3, 5, 7]
-FAN_OUTS        = [1, 2]
-FILE_COUNTS     = [1, 2]
-NAME_AMBIGUITIES = [0, 2]          # only used when file_count >= 2
-SEEDS           = [42, 137, 999]
-CONFLICT_TYPES  = ["DATA_FLOW", "CONFLUENCE", "OVERRIDE_ASSIGNMENT", "CONTROL_DEPENDENCY"]
+CALL_DEPTHS = [1, 2, 3, 5, 7]
+FAN_OUTS = [1, 2]
+FILE_COUNTS = [1, 2]
+NAME_AMBIGUITIES = [0, 2]  # only used when file_count >= 2
+SEEDS = [42, 137, 999]
+CONFLICT_TYPES = ["DATA_FLOW", "CONFLUENCE", "OVERRIDE_ASSIGNMENT", "CONTROL_DEPENDENCY"]
 
 
 def all_correctness_params() -> list[dict]:
@@ -74,11 +74,17 @@ def all_correctness_params() -> list[dict]:
                     for na in ambigs:
                         for pos in [True, False]:
                             for s in SEEDS:
-                                params.append(dict(
-                                    conflict_type=ct, call_depth=cd, fan_out=fo,
-                                    file_count=fc, name_ambiguity=na,
-                                    positive=pos, random_seed=s,
-                                ))
+                                params.append(
+                                    dict(
+                                        conflict_type=ct,
+                                        call_depth=cd,
+                                        fan_out=fo,
+                                        file_count=fc,
+                                        name_ambiguity=na,
+                                        positive=pos,
+                                        random_seed=s,
+                                    )
+                                )
     return params
 
 
@@ -151,8 +157,8 @@ def _build_df(
     def producer_base() -> str:
         return f"def {producer}(x):\n    return x * 2"
 
-    def producer_a() -> str:       # branch A: returns dict
-        return f"def {producer}(x):\n    return {{\"value\": x * 2, \"raw\": x}}"
+    def producer_a() -> str:  # branch A: returns dict
+        return f'def {producer}(x):\n    return {{"value": x * 2, "raw": x}}'
 
     def consumer_base(prev: str) -> str:
         return f"def {consumer}(data):\n    result = {prev}(data)\n    return result"
@@ -198,9 +204,9 @@ def _build_df(
         return {f: _src(*blocks) for f, blocks in all_blocks.items() if blocks}
 
     if positive:
-        base   = make_sources(producer_base, consumer_base)
-        a_src  = make_sources(producer_a,    consumer_base)
-        b_src  = make_sources(producer_base, consumer_b)
+        base = make_sources(producer_base, consumer_base)
+        a_src = make_sources(producer_a, consumer_base)
+        b_src = make_sources(producer_base, consumer_b)
     else:
         # Negative: A and B change independent functions, no shared call path
         solo_a = chain[0].replace(chain[0].split("_")[0], "isola")
@@ -210,15 +216,9 @@ def _build_df(
             sources = make_sources(producer_base, consumer_base)
             # Add independent functions to the first file
             first_file = list(file_assign.keys())[0]
-            base_extra = (
-                f"def {solo_a}():\n    return 1\n\ndef {solo_b}():\n    return 2"
-            )
-            a_extra = (
-                f"def {solo_a}():\n    return 99\n\ndef {solo_b}():\n    return 2"
-            )
-            b_extra = (
-                f"def {solo_a}():\n    return 1\n\ndef {solo_b}():\n    return 88"
-            )
+            base_extra = f"def {solo_a}():\n    return 1\n\ndef {solo_b}():\n    return 2"
+            a_extra = f"def {solo_a}():\n    return 99\n\ndef {solo_b}():\n    return 2"
+            b_extra = f"def {solo_a}():\n    return 1\n\ndef {solo_b}():\n    return 88"
             extra = base_extra
             if a_changes and not b_changes:
                 extra = a_extra
@@ -228,8 +228,8 @@ def _build_df(
             sources[first_file] = sources.get(first_file, "") + "\n\n" + extra + "\n"
             return sources
 
-        base  = make_neg_sources(False, False)
-        a_src = make_neg_sources(True,  False)
+        base = make_neg_sources(False, False)
+        a_src = make_neg_sources(True, False)
         b_src = make_neg_sources(False, True)
 
     return base, a_src, b_src
@@ -242,15 +242,15 @@ def _build_cf(
     file_assign: dict[str, list[str]],
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """CONFLUENCE: helper return type changes; accumulator changes how it aggregates."""
-    helper   = chain[0]
-    accum    = chain[-1]
+    helper = chain[0]
+    accum = chain[-1]
     prev_acc = chain[-2] if len(chain) > 1 else helper
 
     def helper_base() -> str:
         return f"def {helper}(v):\n    return v * 10"
 
     def helper_a() -> str:
-        return f"def {helper}(v):\n    return {{\"result\": v * 10, \"raw\": v}}"
+        return f'def {helper}(v):\n    return {{"result": v * 10, "raw": v}}'
 
     def accum_base(prev: str) -> str:
         lines = [
@@ -262,7 +262,7 @@ def _build_cf(
         ]
         return "\n".join(lines)
 
-    def accum_b(prev: str) -> str:   # different accumulation pattern
+    def accum_b(prev: str) -> str:  # different accumulation pattern
         lines = [
             f"def {accum}(values):",
             "    total = 0",
@@ -299,8 +299,8 @@ def _build_cf(
         return {f: _src(*blocks) for f, blocks in all_blocks.items() if blocks}
 
     if positive:
-        base  = make_sources(helper_base, accum_base)
-        a_src = make_sources(helper_a,    accum_base)
+        base = make_sources(helper_base, accum_base)
+        a_src = make_sources(helper_a, accum_base)
         b_src = make_sources(helper_base, accum_b)
     else:
         solo_a = helper.replace(helper.split("_")[0], "isola")
@@ -317,8 +317,8 @@ def _build_cf(
             s[ff] = s.get(ff, "") + "\n\n" + bk + "\n"
             return s
 
-        base  = make_neg(False, False)
-        a_src = make_neg(True,  False)
+        base = make_neg(False, False)
+        a_src = make_neg(True, False)
         b_src = make_neg(False, True)
 
     return base, a_src, b_src
@@ -332,14 +332,14 @@ def _build_oa(
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """OVERRIDE_ASSIGNMENT: A changes what transform() returns; B overrides config."""
     transform = chain[0]
-    pipeline  = chain[-1]
+    pipeline = chain[-1]
     prev_pipe = chain[-2] if len(chain) > 1 else transform
 
     def transform_base() -> str:
         return f"def {transform}(x):\n    return x + 1"
 
     def transform_a() -> str:
-        return f"def {transform}(x):\n    return {{\"value\": x + 1, \"scale\": 1}}"
+        return f'def {transform}(x):\n    return {{"value": x + 1, "scale": 1}}'
 
     def apply_fn(seed: int) -> tuple[str, str]:
         name = _fn("apply", seed, 50)
@@ -357,7 +357,7 @@ def _build_oa(
         lines = [
             f"def {pipeline}(x):",
             f"    config = {prev}(x)",
-            "    config = 0",               # override assignment
+            "    config = 0",  # override assignment
             f"    return {apply}(config)",
         ]
         return "\n".join(lines)
@@ -376,7 +376,7 @@ def _build_oa(
                 fn_to_file[fn] = fname
         all_blocks: dict[str, list[str]] = {f: [] for f in file_assign}
         tfile = fn_to_file.get(transform, list(file_assign.keys())[0])
-        pfile = fn_to_file.get(pipeline,  list(file_assign.keys())[-1])
+        pfile = fn_to_file.get(pipeline, list(file_assign.keys())[-1])
         all_blocks[tfile].append(t_fn())
         for b in intermediates():
             all_blocks[tfile].append(b)
@@ -388,9 +388,9 @@ def _build_oa(
     apply_name, _ = apply_fn(0)
 
     if positive:
-        base  = make_sources(transform_base, pipeline_base, apply_name)
-        a_src = make_sources(transform_a,    pipeline_base, apply_name)
-        b_src = make_sources(transform_base, pipeline_b,    apply_name)
+        base = make_sources(transform_base, pipeline_base, apply_name)
+        a_src = make_sources(transform_a, pipeline_base, apply_name)
+        b_src = make_sources(transform_base, pipeline_b, apply_name)
     else:
         solo_a = transform.replace(transform.split("_")[0], "isola")
         solo_b = pipeline.replace(pipeline.split("_")[0], "isolb")
@@ -406,8 +406,8 @@ def _build_oa(
             s[ff] = s.get(ff, "") + "\n\n" + bk + "\n"
             return s
 
-        base  = make_neg(False, False)
-        a_src = make_neg(True,  False)
+        base = make_neg(False, False)
+        a_src = make_neg(True, False)
         b_src = make_neg(False, True)
 
     return base, a_src, b_src
@@ -421,14 +421,14 @@ def _build_pdg(
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """CONTROL_DEPENDENCY: A changes callee return type; B changes the guard predicate."""
     action = chain[0]
-    check  = chain[-1]
+    check = chain[-1]
     prev_check = chain[-2] if len(chain) > 1 else action
 
     def action_base() -> str:
         return f"def {action}():\n    return 42"
 
     def action_a() -> str:
-        return f"def {action}():\n    return {{\"code\": 42, \"status\": \"ok\"}}"
+        return f'def {action}():\n    return {{"code": 42, "status": "ok"}}'
 
     def check_base(prev: str) -> str:
         lines = [
@@ -440,7 +440,7 @@ def _build_pdg(
         ]
         return "\n".join(lines)
 
-    def check_b(prev: str) -> str:   # tighter predicate
+    def check_b(prev: str) -> str:  # tighter predicate
         lines = [
             f"def {check}(x):",
             "    if x > 10:",
@@ -465,7 +465,7 @@ def _build_pdg(
                 fn_to_file[fn] = fname
         all_blocks: dict[str, list[str]] = {f: [] for f in file_assign}
         afile = fn_to_file.get(action, list(file_assign.keys())[0])
-        cfile = fn_to_file.get(check,  list(file_assign.keys())[-1])
+        cfile = fn_to_file.get(check, list(file_assign.keys())[-1])
         all_blocks[afile].append(act_fn())
         for b in intermediates():
             all_blocks[afile].append(b)
@@ -473,8 +473,8 @@ def _build_pdg(
         return {f: _src(*blocks) for f, blocks in all_blocks.items() if blocks}
 
     if positive:
-        base  = make_sources(action_base, check_base)
-        a_src = make_sources(action_a,    check_base)
+        base = make_sources(action_base, check_base)
+        a_src = make_sources(action_a, check_base)
         b_src = make_sources(action_base, check_b)
     else:
         solo_a = action.replace(action.split("_")[0], "isola")
@@ -491,8 +491,8 @@ def _build_pdg(
             s[ff] = s.get(ff, "") + "\n\n" + bk + "\n"
             return s
 
-        base  = make_neg(False, False)
-        a_src = make_neg(True,  False)
+        base = make_neg(False, False)
+        a_src = make_neg(True, False)
         b_src = make_neg(False, True)
 
     return base, a_src, b_src
@@ -503,50 +503,57 @@ def _build_pdg(
 # ---------------------------------------------------------------------------
 
 _BUILDERS = {
-    "DATA_FLOW":           _build_df,
-    "CONFLUENCE":          _build_cf,
+    "DATA_FLOW": _build_df,
+    "CONFLUENCE": _build_cf,
     "OVERRIDE_ASSIGNMENT": _build_oa,
-    "CONTROL_DEPENDENCY":  _build_pdg,
+    "CONTROL_DEPENDENCY": _build_pdg,
 }
 
 _RATIONALES = {
-    ("DATA_FLOW", True):
-        "A changes producer return type (scalar→dict); B does arithmetic on consumer result.",
-    ("DATA_FLOW", False):
-        "A and B change independent functions with no shared call path.",
-    ("CONFLUENCE", True):
-        "A changes helper return type; B changes accumulation pattern. Both flow to same sink.",
-    ("CONFLUENCE", False):
-        "A and B change independent sink functions with no shared callee.",
-    ("OVERRIDE_ASSIGNMENT", True):
-        "A changes transform() return type; B overrides config=0, discarding transform's output.",
-    ("OVERRIDE_ASSIGNMENT", False):
-        "A and B write to different variables in unrelated functions.",
-    ("CONTROL_DEPENDENCY", True):
-        "A changes action() return type; B tightens the guard predicate controlling action().",
-    ("CONTROL_DEPENDENCY", False):
-        "A and B change unrelated functions with no control or data path between them.",
+    (
+        "DATA_FLOW",
+        True,
+    ): "A changes producer return type (scalar→dict); B does arithmetic on consumer result.",
+    ("DATA_FLOW", False): "A and B change independent functions with no shared call path.",
+    (
+        "CONFLUENCE",
+        True,
+    ): "A changes helper return type; B changes accumulation pattern. Both flow to same sink.",
+    ("CONFLUENCE", False): "A and B change independent sink functions with no shared callee.",
+    (
+        "OVERRIDE_ASSIGNMENT",
+        True,
+    ): "A changes transform() return type; B overrides config=0, discarding transform's output.",
+    ("OVERRIDE_ASSIGNMENT", False): "A and B write to different variables in unrelated functions.",
+    (
+        "CONTROL_DEPENDENCY",
+        True,
+    ): "A changes action() return type; B tightens the guard predicate controlling action().",
+    (
+        "CONTROL_DEPENDENCY",
+        False,
+    ): "A and B change unrelated functions with no control or data path between them.",
 }
 
 _MUTATIONS = {
-    "DATA_FLOW":           ("return_scalar_to_dict", "arithmetic_on_return"),
-    "CONFLUENCE":          ("return_scalar_to_dict", "change_accumulation_pattern"),
+    "DATA_FLOW": ("return_scalar_to_dict", "arithmetic_on_return"),
+    "CONFLUENCE": ("return_scalar_to_dict", "change_accumulation_pattern"),
     "OVERRIDE_ASSIGNMENT": ("return_scalar_to_dict", "override_assignment_to_zero"),
-    "CONTROL_DEPENDENCY":  ("return_scalar_to_dict", "tighten_guard_predicate"),
+    "CONTROL_DEPENDENCY": ("return_scalar_to_dict", "tighten_guard_predicate"),
 }
 
 _DIRECTIONS = {
-    "DATA_FLOW":           "B_to_A",
-    "CONFLUENCE":          "B_to_A",
+    "DATA_FLOW": "B_to_A",
+    "CONFLUENCE": "B_to_A",
     "OVERRIDE_ASSIGNMENT": "B_to_A",
-    "CONTROL_DEPENDENCY":  "B_to_A",
+    "CONTROL_DEPENDENCY": "B_to_A",
 }
 
 _TIERS = {
-    "DATA_FLOW":           1,
-    "CONFLUENCE":          1,
+    "DATA_FLOW": 1,
+    "CONFLUENCE": 1,
     "OVERRIDE_ASSIGNMENT": 1,
-    "CONTROL_DEPENDENCY":  2,
+    "CONTROL_DEPENDENCY": 2,
 }
 
 
@@ -567,7 +574,7 @@ def generate_scenario(
     random.Random(random_seed)
 
     ct_slug = conflict_type.lower().replace("_", "")
-    sign    = "pos" if positive else "neg"
+    sign = "pos" if positive else "neg"
     name = (
         f"correctness_{ct_slug}_cd{call_depth}_fo{fan_out}"
         f"_fc{file_count}_na{name_ambiguity}_{sign}_s{random_seed}"
@@ -577,8 +584,8 @@ def generate_scenario(
 
     # Build function name chain: chain[0]=producer/source, chain[-1]=consumer/sink
     chain_len = call_depth + 1
-    prefixes  = ["lead"] + [f"mid{i}" for i in range(1, chain_len - 1)] + ["tail"]
-    chain     = [_fn(p, random_seed, i) for i, p in enumerate(prefixes)]
+    prefixes = ["lead"] + [f"mid{i}" for i in range(1, chain_len - 1)] + ["tail"]
+    chain = [_fn(p, random_seed, i) for i, p in enumerate(prefixes)]
 
     # Extra fan-out callees (not on the conflict path)
     aux = [_fn("aux", random_seed, 100 + i) for i in range(max(0, fan_out - 1))]
@@ -605,9 +612,9 @@ def generate_scenario(
                 src_dict[fname] = clone_body
 
     mut_a, mut_b = _MUTATIONS[conflict_type]
-    rationale    = _RATIONALES[(conflict_type, positive)]
-    direction    = _DIRECTIONS[conflict_type] if positive else None
-    exp_tier     = _TIERS[conflict_type]      if positive else None
+    rationale = _RATIONALES[(conflict_type, positive)]
+    direction = _DIRECTIONS[conflict_type] if positive else None
+    exp_tier = _TIERS[conflict_type] if positive else None
 
     return ScenarioSpec(
         name=name,

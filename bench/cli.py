@@ -90,8 +90,7 @@ def _cmd_clean(args: argparse.Namespace) -> None:
     c = Console()
     if not args.confirm:
         c.print(
-            "[yellow]⚠  This will delete all scenarios and results. "
-            "Add --confirm to proceed.[/]"
+            "[yellow]⚠  This will delete all scenarios and results. Add --confirm to proceed.[/]"
         )
         sys.exit(1)
 
@@ -144,10 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=2,
         dest="max_call_hops",
         metavar="N",
-        help=(
-            "Suppress paths crossing more than N call-graph boundaries "
-            "(default: 2)."
-        ),
+        help=("Suppress paths crossing more than N call-graph boundaries (default: 2)."),
     )
     p_run.add_argument(
         "--scenario",
@@ -191,13 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     parser = build_parser()
-    args   = parser.parse_args()
+    args = parser.parse_args()
 
     commands = {
-        "seed":   _cmd_seed,
-        "run":    _cmd_run,
+        "seed": _cmd_seed,
+        "run": _cmd_run,
         "report": _cmd_report,
-        "clean":  _cmd_clean,
+        "clean": _cmd_clean,
     }
     commands[args.command](args)
 

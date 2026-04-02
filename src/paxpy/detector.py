@@ -310,9 +310,7 @@ def _infer_conflict_type(path: list[NodeId], sdg: SDG) -> ConflictType:
         # (data edge) AND controls the body (control edge); prefer the data
         # interpretation so that simple for-loop paths aren't mis-classified as
         # CONTROL_DEPENDENCY.
-        is_data_or_call = v in sdg.data_edges.get(u, set()) or v in sdg.call_edges.get(
-            u, set()
-        )
+        is_data_or_call = v in sdg.data_edges.get(u, set()) or v in sdg.call_edges.get(u, set())
         if v in sdg.control_edges.get(u, set()) and not is_data_or_call:
             has_control = True
 

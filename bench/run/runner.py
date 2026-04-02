@@ -115,11 +115,11 @@ def _run_pipeline(repo_path: Path, depth: int, max_call_hops: int) -> dict:
 
     t0 = time.perf_counter()
 
-    diff   = parse_diffs(repo_path, "main", "branch-a", "branch-b")
-    index  = build_index(repo_path)
+    diff = parse_diffs(repo_path, "main", "branch-a", "branch-b")
+    index = build_index(repo_path)
 
     t1 = time.perf_counter()
-    sdg    = build_sdg(diff, index, depth=depth)
+    sdg = build_sdg(diff, index, depth=depth)
     sdg_ms = int((time.perf_counter() - t1) * 1000)
 
     node_count = len(sdg.nodes)
@@ -130,15 +130,15 @@ def _run_pipeline(repo_path: Path, depth: int, max_call_hops: int) -> dict:
     )
 
     t2 = time.perf_counter()
-    paths  = detect(sdg)
-    paths  = filter_by_call_hops(paths, sdg, max_hops=max_call_hops)
+    paths = detect(sdg)
+    paths = filter_by_call_hops(paths, sdg, max_hops=max_call_hops)
     det_ms = int((time.perf_counter() - t2) * 1000)
 
     total_ms = int((time.perf_counter() - t0) * 1000)
 
-    detected       = len(paths) > 0
-    directions     = [p.direction for p in paths]
-    tiers          = [p.tier for p in paths]
+    detected = len(paths) > 0
+    directions = [p.direction for p in paths]
+    tiers = [p.tier for p in paths]
     conflict_types = [p.conflict_type.value for p in paths]
 
     # Shortest call-hop count across surviving paths (actual inter-procedural depth).
@@ -174,9 +174,9 @@ def _classify(expected_conflict: bool, detected: bool) -> dict[str, int]:
 
 def _run_one(scenario: sqlite3.Row, depth: int, max_call_hops: int) -> dict:
     """Execute paxpy on one scenario and return the full result dict."""
-    base   = json.loads(scenario["base_source"])
-    a_src  = json.loads(scenario["branch_a_source"])
-    b_src  = json.loads(scenario["branch_b_source"])
+    base = json.loads(scenario["base_source"])
+    a_src = json.loads(scenario["branch_a_source"])
+    b_src = json.loads(scenario["branch_b_source"])
     expected = bool(scenario["expected_conflict"])
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -187,13 +187,22 @@ def _run_one(scenario: sqlite3.Row, depth: int, max_call_hops: int) -> dict:
         except Exception:  # noqa: BLE001
             err = traceback.format_exc(limit=6)
             return dict(
-                detected=None, path_count=None,
-                directions=None, tiers=None, conflict_types=None,
-                sdg_node_count=None, sdg_edge_count=None,
+                detected=None,
+                path_count=None,
+                directions=None,
+                tiers=None,
+                conflict_types=None,
+                sdg_node_count=None,
+                sdg_edge_count=None,
                 call_depth_actual=None,
-                sdg_build_ms=None, detection_ms=None, total_ms=None,
+                sdg_build_ms=None,
+                detection_ms=None,
+                total_ms=None,
                 error=err[:2000],
-                is_tp=0, is_fp=0, is_fn=0, is_tn=0,
+                is_tp=0,
+                is_fp=0,
+                is_fn=0,
+                is_tn=0,
             )
 
     clf = _classify(expected, metrics["detected"])
@@ -205,13 +214,13 @@ def _run_one(scenario: sqlite3.Row, depth: int, max_call_hops: int) -> dict:
 # ---------------------------------------------------------------------------
 
 _TYPE_COLOURS = {
-    "DATA_FLOW":           "cyan",
-    "CONFLUENCE":          "magenta",
+    "DATA_FLOW": "cyan",
+    "CONFLUENCE": "magenta",
     "OVERRIDE_ASSIGNMENT": "yellow",
-    "CONTROL_DEPENDENCY":  "blue",
-    "NEGATIVE":            "white",
-    "ADVERSARIAL":         "red",
-    "PERFORMANCE":         "green",
+    "CONTROL_DEPENDENCY": "blue",
+    "NEGATIVE": "white",
+    "ADVERSARIAL": "red",
+    "PERFORMANCE": "green",
 }
 
 
@@ -236,20 +245,23 @@ def _f1_colour(f1: float) -> str:
 
 def _make_stats_table(stats: dict[str, dict[str, int]], errors: int) -> Table:
     t = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
-    t.add_column("Type",   style="bold", min_width=20)
-    t.add_column("TP",   justify="right", style="green")
-    t.add_column("FP",   justify="right", style="red")
-    t.add_column("FN",   justify="right", style="yellow")
-    t.add_column("TN",   justify="right", style="dim")
-    t.add_column("F1",   justify="right", min_width=18)
+    t.add_column("Type", style="bold", min_width=20)
+    t.add_column("TP", justify="right", style="green")
+    t.add_column("FP", justify="right", style="red")
+    t.add_column("FN", justify="right", style="yellow")
+    t.add_column("TN", justify="right", style="dim")
+    t.add_column("F1", justify="right", min_width=18)
 
     for ct, s in sorted(stats.items()):
-        f1  = _f1(s["tp"], s["fp"], s["fn"])
+        f1 = _f1(s["tp"], s["fp"], s["fn"])
         col = _f1_colour(f1)
         bar = _bar(f1)
         t.add_row(
             f"[{_TYPE_COLOURS.get(ct, 'white')}]{ct}[/]",
-            str(s["tp"]), str(s["fp"]), str(s["fn"]), str(s["tn"]),
+            str(s["tp"]),
+            str(s["fp"]),
+            str(s["fn"]),
+            str(s["tn"]),
             f"[{col}]{bar}[/] [bold {col}]{f1:.2f}[/]",
         )
 
@@ -293,7 +305,14 @@ def create_run(
     cur = conn.execute(
         """INSERT INTO runs (bucket, run_at, git_commit, depth, scenario_filter, notes)
            VALUES (?, ?, ?, ?, ?, ?)""",
-        (bucket, datetime.now(timezone.utc).isoformat(), git_commit, depth, scenario_filter, run_notes),
+        (
+            bucket,
+            datetime.now(timezone.utc).isoformat(),
+            git_commit,
+            depth,
+            scenario_filter,
+            run_notes,
+        ),
     )
     conn.commit()
     return cur.lastrowid  # type: ignore[return-value]
@@ -364,7 +383,7 @@ def run_all(
     notes: str | None = None,
 ) -> int:
     """Run paxpy on all pending scenarios, display live results, return run_id."""
-    conn   = init_db(db_path)
+    conn = init_db(db_path)
     run_id = create_run(conn, bucket, depth, scenario_filter, notes, max_call_hops)
 
     scenarios = fetch_pending(conn, run_id, bucket, scenario_filter)
@@ -373,11 +392,11 @@ def run_all(
         conn.close()
         return run_id
 
-    total  = len(scenarios)
-    done   = 0
+    total = len(scenarios)
+    done = 0
     errors = 0
     recent: list[str] = []
-    stats:  dict[str, dict[str, int]] = {}
+    stats: dict[str, dict[str, int]] = {}
 
     progress = Progress(
         SpinnerColumn(),
@@ -401,8 +420,10 @@ def run_all(
     with Live(make_display(), refresh_per_second=6, console=console, vertical_overflow="visible"):
         for row in scenarios:
             ct_key = row["conflict_type"] or (
-                "ADVERSARIAL" if row["bucket"] == "adversarial"
-                else "PERFORMANCE" if row["bucket"] == "performance"
+                "ADVERSARIAL"
+                if row["bucket"] == "adversarial"
+                else "PERFORMANCE"
+                if row["bucket"] == "performance"
                 else "NEGATIVE"
             )
             if ct_key not in stats:
@@ -428,7 +449,7 @@ def run_all(
             progress.advance(task)
 
             label = row["name"][:52]
-            ms    = result.get("total_ms") or 0
+            ms = result.get("total_ms") or 0
             recent.append(f"  {icon}  {label:<54} [dim]{ms:>6}ms[/]")
 
     conn.close()

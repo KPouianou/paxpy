@@ -177,9 +177,7 @@ def test_cf_conflict_type(git_repo, tmp_path):
     assert paths
     acceptable = {ConflictType.CONFLUENCE, ConflictType.DATA_FLOW}
     types_found = {p.conflict_type for p in paths}
-    assert types_found & acceptable, (
-        f"expected CONFLUENCE or DATA_FLOW, got: {types_found}"
-    )
+    assert types_found & acceptable, f"expected CONFLUENCE or DATA_FLOW, got: {types_found}"
 
 
 @pytest.mark.integration

@@ -30,10 +30,19 @@ def all_adversarial() -> list[ScenarioSpec]:
     ]
 
 
-def _spec(name: str, base: str, a: str, b: str, expected: bool,
-          rationale: str, hypothesis: str,
-          direction: str | None = None, tier: int | None = None,
-          mut_a: str = "", mut_b: str = "") -> ScenarioSpec:
+def _spec(
+    name: str,
+    base: str,
+    a: str,
+    b: str,
+    expected: bool,
+    rationale: str,
+    hypothesis: str,
+    direction: str | None = None,
+    tier: int | None = None,
+    mut_a: str = "",
+    mut_b: str = "",
+) -> ScenarioSpec:
     """Helper to build an adversarial ScenarioSpec from single-file sources."""
     return ScenarioSpec(
         name=f"adversarial_{name}",
@@ -94,16 +103,20 @@ def fn_b():
     branch_b = base.replace("return result\n", "return result + 1\n")
     return _spec(
         "depth_limit_boundary",
-        base, branch_a, branch_b,
-        expected=False,   # paxpy at depth=5 cannot reach fn_a from fn_b
+        base,
+        branch_a,
+        branch_b,
+        expected=False,  # paxpy at depth=5 cannot reach fn_a from fn_b
         rationale="Conflict exists at call depth 6, beyond default depth=5.",
         hypothesis=(
             "At depth=5, paxpy should miss this conflict (FN). "
             "Expected: no paths found, no crash. "
             "Validates depth-limit behaviour is a graceful under-approximation."
         ),
-        direction="B_to_A", tier=1,
-        mut_a="return_scalar_to_dict", mut_b="arithmetic_on_return",
+        direction="B_to_A",
+        tier=1,
+        mut_a="return_scalar_to_dict",
+        mut_b="arithmetic_on_return",
     )
 
 
@@ -131,7 +144,9 @@ def consumer():
     branch_b = base.replace("return a + b", "return a + b + 1")
     return _spec(
         "diamond_two_paths",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=True,
         rationale="Two call paths (via path_left and path_right) both connect producer→consumer.",
         hypothesis=(
@@ -139,17 +154,17 @@ def consumer():
             "so deduplication should yield at most 2 paths (one per route). "
             "No crash. Tests whether the chop intersection handles diamond graphs."
         ),
-        direction="B_to_A", tier=1,
-        mut_a="return_scalar_to_dict", mut_b="arithmetic_on_return",
+        direction="B_to_A",
+        tier=1,
+        mut_a="return_scalar_to_dict",
+        mut_b="arithmetic_on_return",
     )
 
 
 def _high_fan_out_stress() -> ScenarioSpec:
     """One hub function called by 15 consumers — tests BFS fan-in scalability."""
     hub_body = "def hub():\n    return 1\n\n"
-    consumers = "".join(
-        f"def consumer_{i}():\n    return hub()\n\n" for i in range(15)
-    )
+    consumers = "".join(f"def consumer_{i}():\n    return hub()\n\n" for i in range(15))
     # Branch B changes consumer_0 which calls hub (changed by A)
     base = hub_body + consumers + "def entry():\n    return consumer_0()\n"
     branch_a = base.replace("return 1", 'return {"value": 1}')
@@ -159,7 +174,9 @@ def _high_fan_out_stress() -> ScenarioSpec:
     )
     return _spec(
         "high_fan_out_stress",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=True,
         rationale="hub() is called by 15 consumers; only consumer_0 is changed by B.",
         hypothesis=(
@@ -167,8 +184,10 @@ def _high_fan_out_stress() -> ScenarioSpec:
             "High fan-in increases reverse-BFS cost. "
             "Tests whether detection degrades or times out under fan-in pressure."
         ),
-        direction="B_to_A", tier=1,
-        mut_a="return_scalar_to_dict", mut_b="arithmetic_on_return",
+        direction="B_to_A",
+        tier=1,
+        mut_a="return_scalar_to_dict",
+        mut_b="arithmetic_on_return",
     )
 
 
@@ -199,7 +218,9 @@ def unrelated_b():
     branch_b = base.replace("return result\n", "return result + 1\n")
     return _spec(
         "high_name_ambiguity",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=True,
         rationale="Standard DF scenario; name ambiguity is single-file (last def wins in Python).",
         hypothesis=(
@@ -207,8 +228,10 @@ def unrelated_b():
             "handles a single-file scenario with the canonical DF pattern. "
             "Baseline for the multi-file name-ambiguity stress tests."
         ),
-        direction="B_to_A", tier=1,
-        mut_a="return_scalar_to_dict", mut_b="arithmetic_on_return",
+        direction="B_to_A",
+        tier=1,
+        mut_a="return_scalar_to_dict",
+        mut_b="arithmetic_on_return",
     )
 
 
@@ -227,12 +250,12 @@ def consumer(data):
     result = mid(data)
     return result
 """
-    base      = {"module_a.py": module_a, "module_b.py": module_b}
-    a_src     = {
+    base = {"module_a.py": module_a, "module_b.py": module_b}
+    a_src = {
         "module_a.py": module_a.replace("return x * 2", 'return {"value": x * 2}'),
         "module_b.py": module_b,
     }
-    b_src     = {
+    b_src = {
         "module_a.py": module_a,
         "module_b.py": module_b.replace("return result\n", "return result + 1\n"),
     }
@@ -285,7 +308,9 @@ def pipeline(x):
     )
     return _spec(
         "oa_inside_try",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=True,
         rationale="A changes transform return type; B overrides config inside try body.",
         hypothesis=(
@@ -293,8 +318,10 @@ def pipeline(x):
             "paxpy may classify as CONTROL_DEPENDENCY instead of OVERRIDE_ASSIGNMENT. "
             "Tests mixed control+data edge classification in the detector."
         ),
-        direction="B_to_A", tier=None,
-        mut_a="return_scalar_to_dict", mut_b="override_inside_try",
+        direction="B_to_A",
+        tier=None,
+        mut_a="return_scalar_to_dict",
+        mut_b="override_inside_try",
     )
 
 
@@ -302,9 +329,7 @@ def _cf_fan_in_many_callers() -> ScenarioSpec:
     """Confluence at an accumulator with 10 callers — reverse-BFS stress."""
     helper_base = "def helper(v):\n    return v * 10\n\n"
     callers = "".join(
-        f"def caller_{i}(vals):\n"
-        f"    return sum(helper(v) for v in vals)\n\n"
-        for i in range(10)
+        f"def caller_{i}(vals):\n    return sum(helper(v) for v in vals)\n\n" for i in range(10)
     )
     base = helper_base + callers
     branch_a = base.replace("return v * 10", 'return {"result": v * 10}')
@@ -314,7 +339,9 @@ def _cf_fan_in_many_callers() -> ScenarioSpec:
     )
     return _spec(
         "cf_fan_in_many_callers",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=True,
         rationale="helper() changed by A; caller_0 changed accumulation by B. 10 callers total.",
         hypothesis=(
@@ -322,8 +349,10 @@ def _cf_fan_in_many_callers() -> ScenarioSpec:
             "The 9 unchanged callers should not create false paths. "
             "Tests whether high fan-in (10 callers) degrades detection or precision."
         ),
-        direction="B_to_A", tier=1,
-        mut_a="return_scalar_to_dict", mut_b="change_accumulation_pattern",
+        direction="B_to_A",
+        tier=1,
+        mut_a="return_scalar_to_dict",
+        mut_b="change_accumulation_pattern",
     )
 
 
@@ -348,7 +377,9 @@ def sink():
     branch_b = base.replace("return result\n", "return result + 1\n")
     return _spec(
         "df_through_augassign",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=True,
         rationale="A changes source() return type; B does arithmetic on sink's result. AugAssign in middle.",
         hypothesis=(
@@ -356,8 +387,10 @@ def sink():
             "treated as both read and write. If AugAssign data edges are missing, "
             "the chain breaks and paxpy produces a FN. Tests the AugAssign fix in pdg_builder."
         ),
-        direction="B_to_A", tier=1,
-        mut_a="return_scalar_to_dict", mut_b="arithmetic_on_return",
+        direction="B_to_A",
+        tier=1,
+        mut_a="return_scalar_to_dict",
+        mut_b="arithmetic_on_return",
     )
 
 
@@ -378,7 +411,9 @@ def consume(data):
     branch_b = base + "\ndef unrelated():\n    return 99\n"
     return _spec(
         "compatible_change_no_conflict",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=False,
         rationale="A changes scalar→scalar (same type); B changes an unrelated function.",
         hypothesis=(
@@ -386,8 +421,10 @@ def consume(data):
             "B's change has no call path to A. Tests false-positive rate for "
             "same-type mutations and independent additions."
         ),
-        direction=None, tier=None,
-        mut_a="change_scalar_value", mut_b="add_unrelated_function",
+        direction=None,
+        tier=None,
+        mut_a="change_scalar_value",
+        mut_b="add_unrelated_function",
     )
 
 
@@ -406,7 +443,9 @@ def caller(data):
     branch_b = base.replace("return x * 2", "return x * 3")
     return _spec(
         "both_change_same_function",
-        base, branch_a, branch_b,
+        base,
+        branch_a,
+        branch_b,
         expected=False,
         rationale="Both A and B change the same function — diff_parser seeds both as A and B.",
         hypothesis=(
@@ -414,6 +453,8 @@ def caller(data):
             "seed attribution conflicts. paxpy should not crash. The result "
             "(conflict or not) is a documentation of actual behaviour, not an assertion."
         ),
-        direction=None, tier=None,
-        mut_a="return_scalar_to_dict", mut_b="change_scalar_multiplier",
+        direction=None,
+        tier=None,
+        mut_a="return_scalar_to_dict",
+        mut_b="change_scalar_multiplier",
     )

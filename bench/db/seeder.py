@@ -87,14 +87,10 @@ def seed(db_path: Path = DEFAULT_DB, bucket: str = "all") -> None:
     """
     conn = init_db(db_path)
 
-    buckets_to_run = (
-        ["correctness", "adversarial", "performance"]
-        if bucket == "all"
-        else [bucket]
-    )
+    buckets_to_run = ["correctness", "adversarial", "performance"] if bucket == "all" else [bucket]
 
     total_inserted = 0
-    total_skipped  = 0
+    total_skipped = 0
 
     for bkt in buckets_to_run:
         if bkt == "correctness":
@@ -122,7 +118,7 @@ def seed(db_path: Path = DEFAULT_DB, bucket: str = "all") -> None:
                 batch = specs[i : i + batch_size]
                 ins, skip = _insert_batch(conn, batch)
                 total_inserted += ins
-                total_skipped  += skip
+                total_skipped += skip
                 progress.advance(task, advance=len(batch))
                 progress.update(task, status=f"+{total_inserted} new, {total_skipped} skipped")
 
@@ -137,7 +133,7 @@ def seed(db_path: Path = DEFAULT_DB, bucket: str = "all") -> None:
 
 def _generate_correctness() -> list[ScenarioSpec]:
     params = all_correctness_params()
-    specs  = []
+    specs = []
     for p in params:
         try:
             specs.append(generate_scenario(**p))

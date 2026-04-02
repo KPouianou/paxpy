@@ -9,7 +9,6 @@ from pathlib import Path
 from paxpy.indexer import _scan_defs, build_index
 from paxpy.types import FunctionIndex
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

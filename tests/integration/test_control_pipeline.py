@@ -153,9 +153,7 @@ def test_control_tier2_path_exists(git_repo, tmp_path):
     paths = detect(sdg)
 
     tier2 = [p for p in paths if p.tier == 2]
-    assert tier2, (
-        f"expected at least one tier-2 path; tiers found: {[p.tier for p in paths]}"
-    )
+    assert tier2, f"expected at least one tier-2 path; tiers found: {[p.tier for p in paths]}"
 
 
 @pytest.mark.integration
@@ -181,8 +179,7 @@ def test_control_conflict_type_control_dependency(git_repo, tmp_path):
     # Tier-2-only paths are those that appear at tier 2 but not tier 1
     tier1_pairs = {(p.source_node, p.sink_node) for p in paths if p.tier == 1}
     tier2_only = [
-        p for p in paths
-        if p.tier == 2 and (p.source_node, p.sink_node) not in tier1_pairs
+        p for p in paths if p.tier == 2 and (p.source_node, p.sink_node) not in tier1_pairs
     ]
 
     if tier2_only:

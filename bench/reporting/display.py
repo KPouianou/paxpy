@@ -63,8 +63,8 @@ def _safe_div(num: float, den: float) -> float:
 
 
 def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
-    p  = _safe_div(tp, tp + fp)
-    r  = _safe_div(tp, tp + fn)
+    p = _safe_div(tp, tp + fp)
+    r = _safe_div(tp, tp + fn)
     f1 = _safe_div(2 * p * r, p + r)
     return p, r, f1
 
@@ -104,10 +104,10 @@ def _headline(results: list[sqlite3.Row], run: sqlite3.Row) -> Panel:
     for r in results:
         if r["bucket"] == "performance":
             continue
-        tp     += r["is_tp"] or 0
-        fp     += r["is_fp"] or 0
-        fn     += r["is_fn"] or 0
-        tn     += r["is_tn"] or 0
+        tp += r["is_tp"] or 0
+        fp += r["is_fp"] or 0
+        fn += r["is_fn"] or 0
+        tn += r["is_tn"] or 0
         errors += 1 if r["error"] else 0
 
     total = tp + fp + fn + tn
@@ -125,13 +125,14 @@ def _headline(results: list[sqlite3.Row], run: sqlite3.Row) -> Panel:
             f"[bold {colour}]{_pct(value)}[/]",
         )
 
-    metric_row("Precision",  p,      _colour_p(p))
-    metric_row("Recall",     recall, _colour_f1(recall))
-    metric_row("F1",         f1,     _colour_f1(f1))
+    metric_row("Precision", p, _colour_p(p))
+    metric_row("Recall", recall, _colour_f1(recall))
+    metric_row("F1", f1, _colour_f1(f1))
     t.add_row("", "", "")
     t.add_row("[dim]Scenarios[/]", f"[dim]{total} evaluated ({errors} errors)[/]", "")
-    t.add_row("[dim]Run[/]",
-              f"[dim]#{run['id']} · {run['run_at'][:19]} · depth={run['depth']}[/]", "")
+    t.add_row(
+        "[dim]Run[/]", f"[dim]#{run['id']} · {run['run_at'][:19]} · depth={run['depth']}[/]", ""
+    )
     if run["git_commit"]:
         t.add_row("[dim]Commit[/]", f"[dim]{run['git_commit']}[/]", "")
 
@@ -160,7 +161,7 @@ def _breakdown_table(results: list[sqlite3.Row]) -> Table:
         lambda: defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0, "tn": 0})
     )
     for r in results:
-        ct   = r["conflict_type"] or "NEGATIVE"
+        ct = r["conflict_type"] or "NEGATIVE"
         tier = r["complexity_tier"] or "?"
         data[ct][tier]["tp"] += r["is_tp"] or 0
         data[ct][tier]["fp"] += r["is_fp"] or 0
@@ -170,7 +171,7 @@ def _breakdown_table(results: list[sqlite3.Row]) -> Table:
     tiers_present = [t for t in _TIERS_ORDER if any(t in data[ct] for ct in data)]
 
     t = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 1))
-    t.add_column("Conflict type",  min_width=22)
+    t.add_column("Conflict type", min_width=22)
     for tier in tiers_present:
         t.add_column(tier.capitalize(), justify="center", min_width=10)
 
@@ -179,10 +180,10 @@ def _breakdown_table(results: list[sqlite3.Row]) -> Table:
             continue
         row_cells: list[str] = [f"[bold]{ct}[/]"]
         for tier in tiers_present:
-            s  = data[ct].get(tier, {"tp": 0, "fp": 0, "fn": 0, "tn": 0})
+            s = data[ct].get(tier, {"tp": 0, "fp": 0, "fn": 0, "tn": 0})
             _, _, f1 = _prf(s["tp"], s["fp"], s["fn"])
             col = _colour_f1(f1)
-            n   = s["tp"] + s["fp"] + s["fn"] + s["tn"]
+            n = s["tp"] + s["fp"] + s["fn"] + s["tn"]
             row_cells.append(f"[{col}]{f1:.2f}[/] [dim]n={n}[/]" if n else "[dim]—[/]")
         t.add_row(*row_cells)
 
@@ -220,20 +221,20 @@ def _breakpoint_chart(results: list[sqlite3.Row]) -> Panel:
     lines = Text()
     lines.append("  Recall vs call depth\n\n", style="bold")
     for cd in sorted(by_depth):
-        s      = by_depth[cd]
+        s = by_depth[cd]
         recall = _safe_div(s["tp"], s["tp"] + s["fn"])
-        col    = _colour_f1(recall)
-        n      = s["tp"] + s["fn"]
+        col = _colour_f1(recall)
+        n = s["tp"] + s["fn"]
         lines.append(f"  CD={cd:<3} ")
         lines.append(_bar(recall, width=24), style=col)
         lines.append(f"  {_pct(recall)}  [dim]n={n}[/]\n")
 
     lines.append("\n  Precision vs name ambiguity (false positive pressure)\n\n", style="bold")
     for na in sorted(by_na):
-        s   = by_na[na]
+        s = by_na[na]
         prec = _safe_div(s["tp"], s["tp"] + s["fp"])
-        col  = _colour_p(prec)
-        n    = s["tp"] + s["fp"]
+        col = _colour_p(prec)
+        n = s["tp"] + s["fp"]
         lines.append(f"  NA={na:<3} ")
         lines.append(_bar(prec, width=24), style=col)
         lines.append(f"  {_pct(prec)}  [dim]n={n}[/]\n")
@@ -252,30 +253,33 @@ def _adversarial_table(results: list[sqlite3.Row]) -> Panel:
         return Panel("[dim]No adversarial results.[/]", title="Adversarial", border_style="dim")
 
     t = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 1))
-    t.add_column("Scenario",        min_width=36)
-    t.add_column("Expected",        justify="center", min_width=12)
-    t.add_column("Result",          justify="center", min_width=10)
-    t.add_column("Verdict",         justify="center", min_width=10)
-    t.add_column("Notes",           min_width=26)
+    t.add_column("Scenario", min_width=36)
+    t.add_column("Expected", justify="center", min_width=12)
+    t.add_column("Result", justify="center", min_width=10)
+    t.add_column("Verdict", justify="center", min_width=10)
+    t.add_column("Notes", min_width=26)
 
     for r in adv:
         exp = "conflict" if r["expected_conflict"] else "clean"
         if r["error"]:
             result_str = "[red]CRASH[/]"
-            verdict    = "[red]✗ UNEXPECTED[/]"
-            note       = r["error"][:40].replace("\n", " ")
+            verdict = "[red]✗ UNEXPECTED[/]"
+            note = r["error"][:40].replace("\n", " ")
         else:
-            detected   = bool(r["detected"])
+            detected = bool(r["detected"])
             result_str = "conflict" if detected else "clean"
-            correct    = (detected == bool(r["expected_conflict"]))
+            correct = detected == bool(r["expected_conflict"])
             # For adversarial: "correct" means "behaved as hypothesised"
-            verdict    = "[green]✓[/]" if correct else "[yellow]✗[/]"
-            cts        = json.loads(r["conflict_types"] or "[]")
-            note       = ", ".join(cts) if cts else "[dim]—[/]"
+            verdict = "[green]✓[/]" if correct else "[yellow]✗[/]"
+            cts = json.loads(r["conflict_types"] or "[]")
+            note = ", ".join(cts) if cts else "[dim]—[/]"
 
         t.add_row(
             r["scenario_name"].replace("adversarial_", ""),
-            exp, result_str, verdict, note,
+            exp,
+            result_str,
+            verdict,
+            note,
         )
 
     return Panel(t, title="[bold]Adversarial cases[/]", border_style="dim")
@@ -311,16 +315,16 @@ def _performance_chart(results: list[sqlite3.Row]) -> Panel:
             buckets[bkt].append(r["total_ms"])
 
     # Find max for bar scaling
-    all_ms   = [ms for mss in buckets.values() for ms in mss]
-    max_ms   = max(all_ms) if all_ms else 1
+    all_ms = [ms for mss in buckets.values() for ms in mss]
+    max_ms = max(all_ms) if all_ms else 1
 
     lines = Text()
     lines.append("  Runtime vs SDG node count  (total pipeline ms)\n\n", style="bold")
     for bkt in sorted(buckets):
-        mss  = buckets[bkt]
-        avg  = sum(mss) / len(mss)
-        bar  = _bar(avg / max_ms, width=36, char="▪", empty=" ")
-        col  = "green" if avg < 500 else ("yellow" if avg < 3000 else "red")
+        mss = buckets[bkt]
+        avg = sum(mss) / len(mss)
+        bar = _bar(avg / max_ms, width=36, char="▪", empty=" ")
+        col = "green" if avg < 500 else ("yellow" if avg < 3000 else "red")
         lines.append(f"  {bkt}  ")
         lines.append(f"{bar}", style=col)
         lines.append(f"  avg [bold]{avg:.0f}ms[/]  [dim]n={len(mss)}[/]\n")
@@ -329,7 +333,9 @@ def _performance_chart(results: list[sqlite3.Row]) -> Panel:
 
     # O(n) estimate
     if len(buckets) >= 2:
-        lines.append("  [dim]Scaling hint: compare avg ms across size groups to estimate growth.[/]\n")
+        lines.append(
+            "  [dim]Scaling hint: compare avg ms across size groups to estimate growth.[/]\n"
+        )
 
     # Timeout / error count
     n_err = sum(1 for r in results if r["bucket"] == "performance" and r["error"])
@@ -390,7 +396,7 @@ def show(db_path: Path = DEFAULT_DB, run_id: int | None = None) -> None:
         console.print("[red]No runs found in database.[/]")
         return
 
-    run     = _fetch_run(conn, run_id)
+    run = _fetch_run(conn, run_id)
     results = _fetch_results(conn, run_id)
     conn.close()
 
@@ -432,7 +438,7 @@ def write_markdown(
     conn = connect(db_path)
     if run_id is None:
         run_id = _latest_run_id(conn)
-    run     = _fetch_run(conn, run_id)  # type: ignore[arg-type]
+    run = _fetch_run(conn, run_id)  # type: ignore[arg-type]
     results = _fetch_results(conn, run_id)  # type: ignore[arg-type]
     conn.close()
 
@@ -465,10 +471,10 @@ def write_markdown(
     for r in results:
         if r["bucket"] == "performance":
             continue
-        tp     += r["is_tp"] or 0
-        fp     += r["is_fp"] or 0
-        fn     += r["is_fn"] or 0
-        tn     += r["is_tn"] or 0
+        tp += r["is_tp"] or 0
+        fp += r["is_fp"] or 0
+        fn += r["is_fn"] or 0
+        tn += r["is_tn"] or 0
         errors += 1 if r["error"] else 0
     prec, recall, f1 = _prf(tp, fp, fn)
 
@@ -477,7 +483,7 @@ def write_markdown(
     p(f"Recall      {_md_bar(recall)}  {_pct(recall)}")
     p(f"F1          {_md_bar(f1)}  {_pct(f1)}")
     p("")
-    p(f"Scenarios: {tp+fp+fn+tn} evaluated  ({errors} errors/crashes)")
+    p(f"Scenarios: {tp + fp + fn + tn} evaluated  ({errors} errors/crashes)")
     p("Baseline:  Santos de Jesus et al. ICSE 2024 (Java) — F1 = 50.0%")
     p("```")
     blank()
@@ -489,7 +495,7 @@ def write_markdown(
     )
     tiers_seen: set[str] = set()
     for r in results:
-        ct   = r["conflict_type"] or "NEGATIVE"
+        ct = r["conflict_type"] or "NEGATIVE"
         tier = r["complexity_tier"] or "?"
         tiers_seen.add(tier)
         data[ct][tier]["tp"] += r["is_tp"] or 0
@@ -499,7 +505,7 @@ def write_markdown(
     tiers_present = [t for t in _TIERS_ORDER if t in tiers_seen]
 
     header = "| Conflict Type | " + " | ".join(t.capitalize() for t in tiers_present) + " |"
-    sep    = "|---|" + "---|" * len(tiers_present)
+    sep = "|---|" + "---|" * len(tiers_present)
     lines.append(header)
     lines.append(sep)
     for ct in _TYPES_ORDER:
@@ -532,7 +538,7 @@ def write_markdown(
     for cd in sorted(by_depth):
         s = by_depth[cd]
         rec = _safe_div(s["tp"], s["tp"] + s["fn"])
-        n   = s["tp"] + s["fn"]
+        n = s["tp"] + s["fn"]
         p(f"  CD={cd:<3}  {_md_bar(rec, 24)}  {_pct(rec)}  (n={n})")
     p("```")
     blank()
@@ -548,12 +554,12 @@ def write_markdown(
             if r["error"]:
                 res, verdict, note = "CRASH", "✗ UNEXPECTED", r["error"][:50]
             else:
-                det     = bool(r["detected"])
-                res     = "conflict" if det else "clean"
+                det = bool(r["detected"])
+                res = "conflict" if det else "clean"
                 correct = det == bool(r["expected_conflict"])
-                cts     = json.loads(r["conflict_types"] or "[]")
+                cts = json.loads(r["conflict_types"] or "[]")
                 verdict = "✓" if correct else "✗"
-                note    = ", ".join(cts) or "—"
+                note = ", ".join(cts) or "—"
             sname = r["scenario_name"].replace("adversarial_", "")
             lines.append(f"| {sname} | {exp} | {res} | {verdict} | {note} |")
         blank()
@@ -569,11 +575,16 @@ def write_markdown(
         for r in perf:
             n = r["sdg_node_count"] or 0
             bkt = (
-                "<100" if n < 100
-                else "100–499" if n < 500
-                else "500–1999" if n < 2000
-                else "2000–7999" if n < 8000
-                else "8000–24999" if n < 25000
+                "<100"
+                if n < 100
+                else "100–499"
+                if n < 500
+                else "500–1999"
+                if n < 2000
+                else "2000–7999"
+                if n < 8000
+                else "8000–24999"
+                if n < 25000
                 else "25000+"
             )
             if r["total_ms"] is not None:
