@@ -1,126 +1,84 @@
-"""Build a repository-wide function index from parsed Python ASTs.
+"""Build a repository-wide function index via fast line-scanning.
 
-Walks every .py file in the repository once, parses each with ast.parse,
-annotates all AST nodes with parent pointers (for upward traversal), and
-builds an inverted index mapping function names to their FunctionLocation
-records. The resulting FunctionIndex supports O(1) lookup by name and provides
-direct access to every file's parsed AST for downstream modules.
+Walks every .py file in the repository once using a lightweight regex scan
+(no AST parsing) to extract function names and line numbers. The resulting
+FunctionIndex supports O(1) name lookup and defers AST parsing to on-demand
+calls via FunctionIndex.ensure_parsed() — only files actually reached during
+SDG expansion are ever fully parsed.
+
+This replaces the previous approach of parsing every file upfront with
+ast.parse, which dominated runtime on large repositories.
 """
 
 from __future__ import annotations
 
-import ast
-import sys
+import re
 from pathlib import Path
 
 from paxpy.types import FunctionIndex, FunctionLocation
 
+# Matches `def name(` or `async def name(` at any indent level.
+# Group 1 captures the function name.
+_DEF_RE = re.compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(")
+
 
 def build_index(repo_path: Path) -> FunctionIndex:
-    """Walk the repository and build a complete function index.
+    """Walk the repository and build a function name index via line-scanning.
 
-    Skips files that cannot be parsed (syntax errors, encoding issues) with a
-    warning. Adds `_parent` attributes to every AST node so callers can walk
-    upward toward the module root.
+    Uses a lightweight regex scan instead of full AST parsing. Function names
+    and line numbers are recorded; AST nodes are left as None and populated
+    lazily by FunctionIndex.ensure_parsed() when sdg_builder needs to expand
+    into a function.
 
     Args:
         repo_path: Absolute path to the root of the repository. All .py files
-            beneath this directory are indexed.
+            beneath this directory are scanned.
 
     Returns:
         FunctionIndex with .index populated (name → [FunctionLocation, ...])
-        and .parsed_asts populated (Path → ast.Module).
+        and .parsed_asts empty (populated lazily on demand).
     """
     index: dict[str, list[FunctionLocation]] = {}
-    parsed_asts: dict[Path, ast.Module] = {}
 
     for filepath in sorted(repo_path.rglob("*.py")):
-        tree = _parse_file(filepath)
-        if tree is None:
-            continue
-
-        parsed_asts[filepath] = tree
-
-        for loc in _extract_functions(filepath, tree):
-            index.setdefault(loc.name, []).append(loc)
-
-    return FunctionIndex(index=index, parsed_asts=parsed_asts)
-
-
-def _parse_file(filepath: Path) -> ast.Module | None:
-    """Parse a single Python file and return its AST module, or None on error.
-
-    On success, annotates every node in the tree with a `_parent` attribute
-    pointing to its parent node (None for the module root).
-
-    Args:
-        filepath: Absolute path to the .py file.
-
-    Returns:
-        Parsed ast.Module with parent pointers set, or None if the file could
-        not be parsed.
-    """
-    try:
-        source = filepath.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"paxpy/indexer: cannot read {filepath}: {exc}", file=sys.stderr)
-        return None
-
-    try:
-        tree = ast.parse(source, filename=str(filepath))
-    except SyntaxError as exc:
-        print(f"paxpy/indexer: syntax error in {filepath}: {exc}", file=sys.stderr)
-        return None
-
-    _add_parent_pointers(tree)
-    return tree
-
-
-def _add_parent_pointers(tree: ast.Module) -> None:
-    """Annotate every node in `tree` with a `_parent` attribute.
-
-    The module root gets `_parent = None`. All other nodes get `_parent` set
-    to their direct parent node. Modifies the tree in-place.
-
-    Args:
-        tree: A parsed AST module.
-    """
-    tree._parent = None  # type: ignore[attr-defined]
-    for node in ast.walk(tree):
-        for child in ast.iter_child_nodes(node):
-            child._parent = node  # type: ignore[attr-defined]
-
-
-def _extract_functions(
-    filepath: Path,
-    tree: ast.Module,
-) -> list[FunctionLocation]:
-    """Extract all top-level and nested function definitions from `tree`.
-
-    Includes both FunctionDef and AsyncFunctionDef nodes. Records name,
-    filepath, lineno, and end_lineno. The ast_node field is set to the node
-    itself. branch is left as None (set by diff_parser).
-
-    Args:
-        filepath: Used to populate FunctionLocation.filepath.
-        tree: Parsed AST module (parent pointers already set).
-
-    Returns:
-        List of FunctionLocation for every function defined in the file.
-    """
-    locations: list[FunctionLocation] = []
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            locations.append(
-                FunctionLocation(
-                    name=node.name,
-                    filepath=filepath,
-                    lineno=node.lineno,
-                    end_lineno=node.end_lineno,
-                    ast_node=node,
-                    branch=None,
-                )
+        for name, lineno in _scan_defs(filepath):
+            loc = FunctionLocation(
+                name=name,
+                filepath=filepath,
+                lineno=lineno,
+                end_lineno=None,
+                ast_node=None,
+                branch=None,
             )
+            index.setdefault(name, []).append(loc)
 
-    return locations
+    return FunctionIndex(index=index, parsed_asts={})
+
+
+def _scan_defs(filepath: Path) -> list[tuple[str, int]]:
+    """Fast scan for function definitions using regex, without AST parsing.
+
+    Reads the file as text and applies a regex to each line to detect
+    'def name(' and 'async def name(' patterns. Does not validate Python
+    syntax — strings or comments containing def-like patterns may produce
+    false positives, but these are harmless over-approximations for the
+    purpose of name-based call resolution.
+
+    Args:
+        filepath: Absolute path to the .py file to scan.
+
+    Returns:
+        List of (function_name, 1-indexed line number) pairs.
+    """
+    results: list[tuple[str, int]] = []
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return results
+
+    for lineno, line in enumerate(text.splitlines(), 1):
+        m = _DEF_RE.match(line)
+        if m:
+            results.append((m.group(1), lineno))
+
+    return results

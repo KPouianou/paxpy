@@ -74,8 +74,8 @@ def build_sdg(
 
         func_node = loc.ast_node
         if func_node is None:
-            # Attempt to load from parsed ASTs in the index
-            tree = index.parsed_asts.get(loc.filepath)
+            # Parse the file on demand (lazy indexing)
+            tree = index.ensure_parsed(loc.filepath)
             if tree is None:
                 continue
             func_node = _find_func_in_tree(tree, loc.lineno)

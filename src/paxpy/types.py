@@ -96,15 +96,66 @@ class DiffResult:
 
 @dataclass
 class FunctionIndex:
-    """Repository-wide function index for O(1) name lookup."""
+    """Repository-wide function index for O(1) name lookup.
+
+    The index is built lazily: build_index() does a fast line-scan to populate
+    name→location entries without parsing ASTs. ASTs are parsed on demand via
+    ensure_parsed() when sdg_builder needs to expand into a function's body.
+    """
 
     # function name → list of locations (multiple when name is ambiguous)
     index: dict[str, list[FunctionLocation]] = field(default_factory=dict)
-    # filepath → parsed AST module (with parent pointers added)
+    # filepath → parsed AST module (with parent pointers added); populated lazily
     parsed_asts: dict[Path, ast.Module] = field(default_factory=dict)
 
     def lookup(self, name: str) -> list[FunctionLocation]:
         return self.index.get(name, [])
+
+    def ensure_parsed(self, filepath: Path) -> ast.Module | None:
+        """Return the parsed AST for filepath, parsing it on demand if needed.
+
+        On first call for a given filepath, reads and parses the file, adds
+        parent pointers, caches the result, and populates ast_node on any
+        FunctionLocation entries for that file that were created by the fast
+        line-scan (i.e. have ast_node=None).
+        """
+        if filepath in self.parsed_asts:
+            return self.parsed_asts[filepath]
+
+        try:
+            source = filepath.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+        try:
+            tree = ast.parse(source, filename=str(filepath))
+        except SyntaxError:
+            return None
+
+        # Add parent pointers (required by pdg_builder and endpoint_analyzer)
+        tree._parent = None  # type: ignore[attr-defined]
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                child._parent = node  # type: ignore[attr-defined]
+
+        self.parsed_asts[filepath] = tree
+
+        # Back-fill ast_node on any locations that were created by the fast scan
+        for locs in self.index.values():
+            for loc in locs:
+                if loc.filepath == filepath and loc.ast_node is None:
+                    for node in ast.walk(tree):
+                        if (
+                            isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+                            and node.name == loc.name
+                            and node.lineno == loc.lineno
+                        ):
+                            loc.ast_node = node
+                            if loc.end_lineno is None:
+                                loc.end_lineno = node.end_lineno
+                            break
+
+        return tree
 
 
 @dataclass
