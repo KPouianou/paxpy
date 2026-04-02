@@ -20,7 +20,7 @@ from collections import deque
 
 from paxpy.call_resolver import resolve_call
 from paxpy.pdg_builder import build_pdg
-from paxpy.types import SDG, DiffResult, FunctionIndex, FunctionLocation, NodeId
+from paxpy.types import PDG, SDG, DiffResult, FunctionIndex, FunctionLocation, NodeId
 
 
 def build_sdg(
@@ -59,6 +59,8 @@ def build_sdg(
     visited: set[tuple[str, int]] = set()
     # Map (filepath, lineno) → entry NodeId for functions already processed
     func_entry_ids: dict[tuple[str, int], NodeId] = {}
+    # Deferred call edges: callee not yet processed when caller was — resolved after BFS
+    pending_call_edges: list[tuple[NodeId, tuple[str, int]]] = []
 
     def enqueue(loc: FunctionLocation, d: int) -> None:
         key = (str(loc.filepath), loc.lineno)
@@ -90,6 +92,7 @@ def build_sdg(
                 node.branch = loc.branch  # type: ignore[assignment]
 
         _merge_pdg_into_sdg(sdg, pdg)
+        _add_unused_param_flow_edges(sdg, pdg)
 
         # Record entry node ID for this function so callers can link to it
         if pdg.nodes:
@@ -113,13 +116,18 @@ def build_sdg(
                         if callee_key not in visited:
                             enqueue(callee, current_depth + 1)
                         # Always add a call edge — even if callee was already visited
-                        # (e.g., callee is itself a seed from the other branch)
+                        # (e.g., callee is itself a seed from the other branch).
+                        # If the callee hasn't been processed yet, defer the edge
+                        # until after the BFS loop so we can look up its entry node.
                         if callee_key in func_entry_ids:
                             _add_call_edge(sdg, node.id, func_entry_ids[callee_key])
-                        elif callee.ast_node is not None:
-                            callee_pdg = build_pdg(callee.ast_node, callee.filepath)
-                            if callee_pdg.nodes:
-                                _add_call_edge(sdg, node.id, callee_pdg.nodes[0].id)
+                        else:
+                            pending_call_edges.append((node.id, callee_key))
+
+    # Resolve deferred call edges now that all functions have been processed
+    for caller_id, callee_key in pending_call_edges:
+        if callee_key in func_entry_ids:
+            _add_call_edge(sdg, caller_id, func_entry_ids[callee_key])
 
     _build_reverse_edges(sdg)
     return sdg
@@ -147,8 +155,6 @@ def _merge_pdg_into_sdg(sdg: SDG, pdg: object) -> None:
         sdg: The SDG being built (mutated in-place).
         pdg: A PDG instance from pdg_builder.
     """
-    from paxpy.types import PDG
-
     assert isinstance(pdg, PDG)
 
     for node in pdg.nodes:
@@ -177,6 +183,38 @@ def _add_call_edge(sdg: SDG, caller_node_id: NodeId, callee_node_id: NodeId) -> 
     """
     sdg.call_edges.setdefault(caller_node_id, set()).add(callee_node_id)
     sdg.reverse_call_edges.setdefault(callee_node_id, set()).add(caller_node_id)
+
+
+def _add_unused_param_flow_edges(sdg: SDG, pdg: object) -> None:
+    """Add a data edge from each unused parameter to the first body statement.
+
+    When a function is entered via a call edge, BFS arrives at the first
+    parameter node. If that parameter is never used in the body (e.g. an
+    intermediate function `def f(x): r = g(); return r` where x is unused),
+    BFS has no outgoing edge and cannot explore the function body.
+
+    Adding an edge from each unused param to the first body statement is a
+    conservative over-approximation: it allows BFS to continue traversal
+    through any function body reached via a call edge, regardless of whether
+    parameters are forwarded. This is required for CONTROL_DEPENDENCY paths
+    where intermediates call callees with no arguments.
+
+    Args:
+        sdg: The SDG being built (mutated in-place).
+        pdg: A PDG instance whose param→body edges are added.
+    """
+    assert isinstance(pdg, PDG)
+
+    param_nodes = [n for n in pdg.nodes if isinstance(n.ast_node, ast.arg)]
+    body_nodes = [n for n in pdg.nodes if not isinstance(n.ast_node, ast.arg)]
+    if not param_nodes or not body_nodes:
+        return
+
+    first_body_id = body_nodes[0].id
+    for pn in param_nodes:
+        if pn.id not in sdg.data_edges:
+            # Param has no outgoing data edges — add one to the first body node
+            sdg.data_edges.setdefault(pn.id, set()).add(first_body_id)
 
 
 def _build_reverse_edges(sdg: SDG) -> None:
@@ -232,9 +270,7 @@ def _iter_calls_in_stmt(stmt_ast_node: ast.AST) -> list[ast.Call]:
     elif isinstance(stmt_ast_node, ast.With):
         calls: list[ast.Call] = []
         for item in stmt_ast_node.items:
-            calls.extend(
-                n for n in ast.walk(item.context_expr) if isinstance(n, ast.Call)
-            )
+            calls.extend(n for n in ast.walk(item.context_expr) if isinstance(n, ast.Call))
         return calls
     else:
         root = stmt_ast_node

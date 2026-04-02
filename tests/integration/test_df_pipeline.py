@@ -174,13 +174,15 @@ def test_df_endpoint_analysis_suspicious_or_incompatible(git_repo, tmp_path):
     sink_node = sdg.nodes.get(path.sink_node)
     result = analyze_endpoints(
         path,
-        source_node.ast_node if source_node else None,
-        sink_node.ast_node if sink_node else None,
+        source_node,
+        sink_node,
     )
 
-    assert result.compatibility in {Compatibility.SUSPICIOUS, Compatibility.INCOMPATIBLE, Compatibility.UNKNOWN}, (
-        f"expected SUSPICIOUS/INCOMPATIBLE/UNKNOWN for dict+arithmetic, got {result.compatibility}"
-    )
+    assert result.compatibility in {
+        Compatibility.SUSPICIOUS,
+        Compatibility.INCOMPATIBLE,
+        Compatibility.UNKNOWN,
+    }, f"expected SUSPICIOUS/INCOMPATIBLE/UNKNOWN for dict+arithmetic, got {result.compatibility}"
 
 
 @pytest.mark.integration
