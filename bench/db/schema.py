@@ -71,6 +71,29 @@ CREATE INDEX IF NOT EXISTS idx_results_run    ON results(run_id);
 CREATE INDEX IF NOT EXISTS idx_results_scen   ON results(scenario_id);
 CREATE INDEX IF NOT EXISTS idx_scenarios_buck ON scenarios(bucket);
 CREATE INDEX IF NOT EXISTS idx_scenarios_tier ON scenarios(complexity_tier);
+
+CREATE TABLE IF NOT EXISTS heuristic_runs (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at   TEXT    NOT NULL,
+    notes    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS heuristic_results (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    heuristic_run_id  INTEGER NOT NULL REFERENCES heuristic_runs(id),
+    scenario_id       INTEGER NOT NULL REFERENCES scenarios(id),
+    heuristic         TEXT    NOT NULL,   -- 'same_function' | 'diff_proximity_5' | etc.
+    detected          INTEGER NOT NULL,   -- 1 or 0
+    is_tp             INTEGER,
+    is_fp             INTEGER,
+    is_fn             INTEGER,
+    is_tn             INTEGER,
+    UNIQUE(heuristic_run_id, scenario_id, heuristic)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hresults_run   ON heuristic_results(heuristic_run_id);
+CREATE INDEX IF NOT EXISTS idx_hresults_scen  ON heuristic_results(scenario_id);
+CREATE INDEX IF NOT EXISTS idx_hresults_hname ON heuristic_results(heuristic);
 """
 
 
@@ -100,6 +123,8 @@ def drop_and_recreate(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
     """Destroy all data and recreate the schema from scratch."""
     conn = connect(db_path)
     conn.executescript("""
+        DROP TABLE IF EXISTS heuristic_results;
+        DROP TABLE IF EXISTS heuristic_runs;
         DROP TABLE IF EXISTS results;
         DROP TABLE IF EXISTS runs;
         DROP TABLE IF EXISTS scenarios;
