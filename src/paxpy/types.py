@@ -35,6 +35,8 @@ class FunctionLocation:
     # The AST node — not serializable, but available during analysis
     ast_node: ast.FunctionDef | ast.AsyncFunctionDef | None = field(default=None, repr=False)
     branch: Literal["A", "B"] | None = None
+    # Line ranges (1-indexed, inclusive) that were directly modified within this function
+    modified_ranges: list[tuple[int, int]] = field(default_factory=list)
 
 
 @dataclass
@@ -51,6 +53,8 @@ class Node:
     label: str = ""
     # The function this node belongs to
     enclosing_function: str | None = None
+    # True when this node's line falls within a directly modified diff hunk
+    is_direct_modification: bool = False
 
 
 def make_node_id(filepath: Path, lineno: int, col_offset: int) -> NodeId:

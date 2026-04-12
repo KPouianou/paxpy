@@ -106,8 +106,20 @@ def _setup_scenario_repo(
 # ---------------------------------------------------------------------------
 
 
-def _run_pipeline(repo_path: Path, depth: int, max_call_hops: int) -> dict:
-    """Run the full paxpy pipeline and return a metrics dict."""
+def _run_pipeline(
+    repo_path: Path,
+    depth: int,
+    max_call_hops: int,
+    call_edges_only: bool = False,
+) -> dict:
+    """Run the full paxpy pipeline and return a metrics dict.
+
+    When call_edges_only=True, data_edges and control_edges are stripped from
+    the SDG before detection.  This ablates the PDG signal to measure how much
+    recall depends purely on the call graph vs. data/control flow.
+    """
+    import dataclasses
+
     from paxpy.detector import count_call_hops, detect, filter_by_call_hops
     from paxpy.diff_parser import parse_diffs
     from paxpy.indexer import build_index
@@ -121,6 +133,15 @@ def _run_pipeline(repo_path: Path, depth: int, max_call_hops: int) -> dict:
     t1 = time.perf_counter()
     sdg = build_sdg(diff, index, depth=depth)
     sdg_ms = int((time.perf_counter() - t1) * 1000)
+
+    if call_edges_only:
+        sdg = dataclasses.replace(
+            sdg,
+            data_edges={},
+            control_edges={},
+            reverse_data_edges={},
+            reverse_control_edges={},
+        )
 
     node_count = len(sdg.nodes)
     edge_count = (
@@ -172,7 +193,12 @@ def _classify(expected_conflict: bool, detected: bool) -> dict[str, int]:
     return dict(is_tp=tp, is_fp=fp, is_fn=fn, is_tn=tn)
 
 
-def _run_one(scenario: sqlite3.Row, depth: int, max_call_hops: int) -> dict:
+def _run_one(
+    scenario: sqlite3.Row,
+    depth: int,
+    max_call_hops: int,
+    call_edges_only: bool = False,
+) -> dict:
     """Execute paxpy on one scenario and return the full result dict."""
     base = json.loads(scenario["base_source"])
     a_src = json.loads(scenario["branch_a_source"])
@@ -183,7 +209,7 @@ def _run_one(scenario: sqlite3.Row, depth: int, max_call_hops: int) -> dict:
         tmp_path = Path(tmp)
         try:
             _setup_scenario_repo(tmp_path, base, a_src, b_src)
-            metrics = _run_pipeline(tmp_path, depth, max_call_hops)
+            metrics = _run_pipeline(tmp_path, depth, max_call_hops, call_edges_only=call_edges_only)
         except Exception:  # noqa: BLE001
             err = traceback.format_exc(limit=6)
             return dict(
@@ -381,10 +407,13 @@ def run_all(
     max_call_hops: int = 2,
     scenario_filter: str | None = None,
     notes: str | None = None,
+    call_edges_only: bool = False,
 ) -> int:
     """Run paxpy on all pending scenarios, display live results, return run_id."""
     conn = init_db(db_path)
-    run_id = create_run(conn, bucket, depth, scenario_filter, notes, max_call_hops)
+    extra_notes = "call_edges_only=True" if call_edges_only else None
+    combined_notes = "; ".join(filter(None, [extra_notes, notes])) or None
+    run_id = create_run(conn, bucket, depth, scenario_filter, combined_notes, max_call_hops)
 
     scenarios = fetch_pending(conn, run_id, bucket, scenario_filter)
     if not scenarios:
@@ -398,9 +427,10 @@ def run_all(
     recent: list[str] = []
     stats: dict[str, dict[str, int]] = {}
 
+    mode_tag = "  [dim]call-edges-only[/]" if call_edges_only else ""
     progress = Progress(
         SpinnerColumn(),
-        TextColumn(f"  [bold]run #{run_id}[/]  {bucket}  depth={depth}  max-hops={max_call_hops}"),
+        TextColumn(f"  [bold]run #{run_id}[/]  {bucket}  depth={depth}  max-hops={max_call_hops}{mode_tag}"),
         BarColumn(bar_width=44),
         MofNCompleteColumn(),
         TimeRemainingColumn(),
@@ -429,7 +459,7 @@ def run_all(
             if ct_key not in stats:
                 stats[ct_key] = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
 
-            result = _run_one(row, depth, max_call_hops)
+            result = _run_one(row, depth, max_call_hops, call_edges_only=call_edges_only)
             record_result(conn, run_id, row["id"], result)
 
             if result["error"]:

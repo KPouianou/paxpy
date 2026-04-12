@@ -64,6 +64,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         max_call_hops=args.max_call_hops,
         scenario_filter=args.scenario or None,
         notes=args.notes or None,
+        call_edges_only=args.call_edges_only,
     )
 
     c.print(f"\n[dim]Run #{run_id} complete. Generating report…[/]\n")
@@ -199,6 +200,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="TEXT",
         default=None,
         help="Optional free-text notes stored with the run record.",
+    )
+    p_run.add_argument(
+        "--call-edges-only",
+        action="store_true",
+        dest="call_edges_only",
+        help="Strip data/control edges before detection (call-graph-only ablation).",
     )
 
     # report

@@ -9,8 +9,10 @@ from bench.run.heuristics import (
     _changed_files,
     _changed_function_names,
     _changed_lines,
+    _extract_call_names,
     _imported_modules,
     any_shared_file,
+    call_graph_1hop,
     diff_proximity,
     import_overlap,
     same_function,
@@ -259,6 +261,78 @@ def test_h3_single_file_always_false():
 # HEURISTICS registry
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Helper: _extract_call_names
+# ---------------------------------------------------------------------------
+
+def test_extract_call_names_basic():
+    body = "def foo():\n    return bar()\n"
+    assert "bar" in _extract_call_names(body)
+
+
+def test_extract_call_names_excludes_keywords():
+    body = "def foo():\n    if x > 0:\n        return 1\n"
+    names = _extract_call_names(body)
+    assert "if" not in names
+    assert "return" not in names
+
+
+def test_extract_call_names_multi():
+    body = "def foo():\n    x = bar(baz())\n    return qux(x)\n"
+    names = _extract_call_names(body)
+    assert {"bar", "baz", "qux"}.issubset(names)
+
+
+# ---------------------------------------------------------------------------
+# H5: call_graph_1hop
+# ---------------------------------------------------------------------------
+
+def test_h5_direct_caller_callee():
+    """B changes a consumer that directly calls A's changed producer → H5 fires."""
+    base = {
+        "m.py": "def producer():\n    return 1\n\ndef consumer():\n    x = producer()\n    return x\n"
+    }
+    a = {
+        "m.py": "def producer():\n    return {'value': 1}\n\ndef consumer():\n    x = producer()\n    return x\n"
+    }
+    b = {
+        "m.py": "def producer():\n    return 1\n\ndef consumer():\n    x = producer()\n    return x + 1\n"
+    }
+    assert call_graph_1hop(base, a, b) is True
+
+
+def test_h5_deep_chain_misses():
+    """Deep chain: A changes level3, B changes consumer. No direct call → H5 misses."""
+    assert call_graph_1hop(_DEEP_BASE, _DEEP_A, _DEEP_B) is False
+
+
+def test_h5_no_shared_functions():
+    """Both branches change unrelated functions with no call relationship."""
+    base = {
+        "m.py": "def foo():\n    return 1\n\ndef bar():\n    return 2\n"
+    }
+    a = {"m.py": "def foo():\n    return 99\n\ndef bar():\n    return 2\n"}
+    b = {"m.py": "def foo():\n    return 1\n\ndef bar():\n    return 99\n"}
+    assert call_graph_1hop(base, a, b) is False
+
+
+def test_h5_cross_file():
+    """A changes module_b.helper, B changes module_a.caller which calls helper → H5 fires."""
+    base = {
+        "module_a.py": "def caller():\n    return helper()\n",
+        "module_b.py": "def helper():\n    return 1\n",
+    }
+    a = {
+        "module_a.py": "def caller():\n    return helper()\n",
+        "module_b.py": "def helper():\n    return {'v': 1}\n",
+    }
+    b = {
+        "module_a.py": "def caller():\n    return helper() + 1\n",
+        "module_b.py": "def helper():\n    return 1\n",
+    }
+    assert call_graph_1hop(base, a, b) is True
+
+
 def test_heuristics_registry_complete():
     expected = {
         "same_function",
@@ -268,6 +342,7 @@ def test_heuristics_registry_complete():
         "diff_proximity_50",
         "import_overlap",
         "any_shared_file",
+        "call_graph_1hop",
     }
     assert set(HEURISTICS.keys()) == expected
 

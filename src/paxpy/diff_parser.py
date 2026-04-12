@@ -184,21 +184,24 @@ def _map_ranges_to_functions(
         func_start = node.lineno
         func_end = node.end_lineno if node.end_lineno is not None else node.lineno
 
-        for range_start, range_end in ranges:
-            if func_start <= range_end and func_end >= range_start:
-                key = (node.name, node.lineno)
-                if key not in seen:
-                    seen.add(key)
-                    locations.append(
-                        FunctionLocation(
-                            name=node.name,
-                            filepath=filepath,
-                            lineno=node.lineno,
-                            end_lineno=node.end_lineno,
-                            ast_node=node,
-                            branch=branch,  # type: ignore[arg-type]
-                        )
+        func_ranges = [
+            (rs, re) for rs, re in ranges
+            if func_start <= re and func_end >= rs
+        ]
+        if func_ranges:
+            key = (node.name, node.lineno)
+            if key not in seen:
+                seen.add(key)
+                locations.append(
+                    FunctionLocation(
+                        name=node.name,
+                        filepath=filepath,
+                        lineno=node.lineno,
+                        end_lineno=node.end_lineno,
+                        ast_node=node,
+                        branch=branch,  # type: ignore[arg-type]
+                        modified_ranges=func_ranges,
                     )
-                break  # Already added this function, no need to check more ranges
+                )
 
     return locations

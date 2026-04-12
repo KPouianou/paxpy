@@ -74,15 +74,20 @@ def build_sdg(
     while queue:
         loc, current_depth = queue.popleft()
 
-        func_node = loc.ast_node
-        if func_node is None:
-            # Parse the file on demand (lazy indexing)
-            tree = index.ensure_parsed(loc.filepath)
-            if tree is None:
-                continue
+        # Always prefer the index's AST — ensure_parsed adds parent pointers
+        # to every node (needed by call_resolver for self-method narrowing).
+        # loc.ast_node comes from diff_parser which parses its own private AST
+        # without parent pointers, so it cannot be used for self.foo() resolution.
+        tree = index.ensure_parsed(loc.filepath)
+        if tree is not None:
             func_node = _find_func_in_tree(tree, loc.lineno)
-            if func_node is None:
-                continue
+        else:
+            func_node = None
+        if func_node is None:
+            # Fallback: use the diff-parser node if the index can't find it
+            func_node = loc.ast_node
+        if func_node is None:
+            continue
 
         pdg = build_pdg(func_node, loc.filepath)
 
@@ -90,6 +95,14 @@ def build_sdg(
         if loc.branch is not None:
             for node in pdg.nodes:
                 node.branch = loc.branch  # type: ignore[assignment]
+
+        # Tag nodes whose line falls within directly modified diff hunks
+        if loc.modified_ranges:
+            for node in pdg.nodes:
+                for range_start, range_end in loc.modified_ranges:
+                    if range_start <= node.lineno <= range_end:
+                        node.is_direct_modification = True
+                        break
 
         _merge_pdg_into_sdg(sdg, pdg)
         _add_unused_param_flow_edges(sdg, pdg)
