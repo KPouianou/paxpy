@@ -16,6 +16,7 @@ same_function(base, a, b) -> bool
 diff_proximity(base, a, b, n) -> bool
 import_overlap(base, a, b) -> bool
 any_shared_file(base, a, b) -> bool
+call_graph_1hop(base, a, b) -> bool
 """
 
 from __future__ import annotations
@@ -131,6 +132,19 @@ def _stem(filename: str) -> str:
     return filename.rsplit(".", 1)[0]
 
 
+_CALL_RE = re.compile(r"\b(\w+)\s*\(")
+
+_PY_KEYWORDS = frozenset(
+    "if else elif while for with try except finally return yield raise assert "
+    "del pass break continue lambda class def and or not in is".split()
+)
+
+
+def _extract_call_names(func_body: str) -> set[str]:
+    """Function names called within func_body (regex only, no AST)."""
+    return {m.group(1) for m in _CALL_RE.finditer(func_body) if m.group(1) not in _PY_KEYWORDS}
+
+
 # ---------------------------------------------------------------------------
 # Heuristics
 # ---------------------------------------------------------------------------
@@ -217,6 +231,52 @@ def any_shared_file(
     return bool(_changed_files(base, branch_a) & _changed_files(base, branch_b))
 
 
+def call_graph_1hop(
+    base: dict[str, str],
+    branch_a: dict[str, str],
+    branch_b: dict[str, str],
+) -> bool:
+    """H5: A function changed by A directly calls a function changed by B, or vice versa.
+
+    Only 1 call-graph hop: caller and callee must be directly connected.
+    Uses regex call extraction — no AST, no full call graph construction.
+    """
+    files_a = _changed_files(base, branch_a)
+    files_b = _changed_files(base, branch_b)
+
+    # Collect changed function names across all files for each branch
+    a_changed_names: set[str] = set()
+    for filename in files_a:
+        a_changed_names |= _changed_function_names(base.get(filename, ""), branch_a.get(filename, ""))
+
+    b_changed_names: set[str] = set()
+    for filename in files_b:
+        b_changed_names |= _changed_function_names(base.get(filename, ""), branch_b.get(filename, ""))
+
+    if not a_changed_names or not b_changed_names:
+        return False
+
+    # Check A's changed function bodies for direct calls to B's changed functions
+    for filename in files_a:
+        a_fns = _parse_function_bodies(branch_a.get(filename, base.get(filename, "")))
+        a_changed = _changed_function_names(base.get(filename, ""), branch_a.get(filename, ""))
+        for fn_name in a_changed:
+            body = a_fns.get(fn_name, "")
+            if body and _extract_call_names(body) & b_changed_names:
+                return True
+
+    # Check B's changed function bodies for direct calls to A's changed functions
+    for filename in files_b:
+        b_fns = _parse_function_bodies(branch_b.get(filename, base.get(filename, "")))
+        b_changed = _changed_function_names(base.get(filename, ""), branch_b.get(filename, ""))
+        for fn_name in b_changed:
+            body = b_fns.get(fn_name, "")
+            if body and _extract_call_names(body) & a_changed_names:
+                return True
+
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -229,4 +289,5 @@ HEURISTICS: dict[str, Callable[[dict[str, str], dict[str, str], dict[str, str]],
     "diff_proximity_50":  lambda b, a, br: diff_proximity(b, a, br, 50),
     "import_overlap":     import_overlap,
     "any_shared_file":    any_shared_file,
+    "call_graph_1hop":    call_graph_1hop,
 }

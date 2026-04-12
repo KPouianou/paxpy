@@ -68,7 +68,35 @@ def build_parser() -> argparse.ArgumentParser:
         dest="output_format",
         help="Output format (default: cli)",
     )
+    parser.add_argument(
+        "--detector",
+        choices=["chop", "neighborhood"],
+        default="neighborhood",
+        help="Detection algorithm: neighborhood overlap (default) or approximate chop",
+    )
+    parser.add_argument(
+        "--radius",
+        type=int,
+        default=2,
+        metavar="N",
+        help="Neighborhood radius for --detector neighborhood (default: 2)",
+    )
     return parser
+
+
+def _is_test_file(filepath: str) -> bool:
+    """Return True if filepath looks like a test file.
+
+    Matches paths containing a ``/tests/`` or ``/test/`` directory segment,
+    filenames beginning with ``test_``, or filenames ending with ``_test.py``.
+    """
+    from pathlib import PurePosixPath
+    p = PurePosixPath(filepath.replace("\\", "/"))
+    parts = p.parts
+    if any(part in ("tests", "test") for part in parts[:-1]):
+        return True
+    name = p.name
+    return name.startswith("test_") or name.endswith("_test.py")
 
 
 def main() -> None:
@@ -86,6 +114,11 @@ def main() -> None:
     from paxpy.sdg_builder import build_sdg
     from paxpy.types import ConflictReport
 
+    if args.detector == "neighborhood":
+        from paxpy.neighborhood_detector import detect_interferences as _detect_fn
+    else:
+        _detect_fn = None  # use chop below
+
     # 1. Parse diffs
     diff_result = parse_diffs(repo_path, args.base, args.branch_a, args.branch_b)
 
@@ -99,9 +132,12 @@ def main() -> None:
     # 3. Build partial SDG
     sdg = build_sdg(diff_result, index, depth=args.depth)
 
-    # 4. Detect interference paths, then suppress long-hop incidental connectivity
-    paths = detect(sdg)
-    paths = filter_by_call_hops(paths, sdg, max_hops=args.max_call_hops)
+    # 4. Detect interference paths
+    if args.detector == "neighborhood":
+        paths = _detect_fn(sdg, radius=args.radius)
+    else:
+        paths = detect(sdg)
+        paths = filter_by_call_hops(paths, sdg, max_hops=args.max_call_hops)
 
     if not paths:
         output = format_cli([]) if args.output_format == "cli" else json.dumps(format_json([]))
@@ -123,17 +159,34 @@ def main() -> None:
         if compatibility.compatibility == Compatibility.COMPATIBLE:
             continue
 
+        src_file = str(source_node.filepath) if source_node else ""
+        snk_file = str(sink_node.filepath) if sink_node else ""
+        src_fn = source_node.enclosing_function or "" if source_node else ""
+        snk_fn = sink_node.enclosing_function or "" if sink_node else ""
+
+        # Suppress test-file seeding: paths where a test function is an endpoint
+        # are almost never real semantic conflicts — they represent test code
+        # calling the production functions it tests.
+        if _is_test_file(src_file) or _is_test_file(snk_file):
+            continue
+
+        # Suppress self-referential paths: source and sink in the same function
+        # of the same file. These arise when both branches modified the same
+        # function, creating two seed nodes whose own data edges connect them.
+        if src_fn and src_fn == snk_fn and src_file == snk_file:
+            continue
+
         report = ConflictReport(
             interference=path,
             compatibility=compatibility,
-            source_function=source_node.enclosing_function or "" if source_node else "",
-            sink_function=sink_node.enclosing_function or "" if sink_node else "",
-            source_file=str(source_node.filepath) if source_node else "",
-            sink_file=str(sink_node.filepath) if sink_node else "",
+            source_function=src_fn,
+            sink_function=snk_fn,
+            source_file=src_file,
+            sink_file=snk_file,
         )
         reports.append(report)
 
-    # 6. Format and print output
+    # 6. Format and output
     match args.output_format:
         case "cli":
             print(format_cli(reports))
