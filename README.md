@@ -4,18 +4,21 @@ Detect semantic merge conflicts in Python repositories before they reach product
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/KPouianou/paxpy/actions/workflows/ci.yml/badge.svg)](https://github.com/KPouianou/paxpy/actions/workflows/ci.yml)
 
-## What is a semantic merge conflict?
+## The problem
 
-Two branches can each pass their own tests and merge cleanly at the text level, yet still break each other's assumptions at runtime. For example, branch A changes `decode_payload()` to return a `dict` instead of a `str`, while branch B adds `handle_request()` which calls `.split()` on the return value of `decode_payload()`. Git merges them without a conflict, but the combined code crashes. paxpy finds these conflicts statically, before the merge.
+Two branches can each pass their own tests and merge cleanly at the text level, yet still break each other's assumptions at runtime:
+
+- Branch A changes `get_safe_globals()` to expose `frappe.db.sql` (unrestricted SQL access)
+- Branch B adds `commit = frappe.db.commit` to the same function, assuming the existing `read_sql` wrapper is still in place
+- Git merges them without conflict. The result: server scripts can now execute arbitrary SQL **and** commit it -- a security regression neither developer intended.
+
+This is a **semantic merge conflict**. Git can't see it because there's no textual overlap. paxpy finds these conflicts statically, before the merge, by analyzing the program's data flow and control dependencies.
 
 ## Installation
 
 ```bash
-# From PyPI (coming soon)
-pip install paxpy
-
-# From source
 git clone https://github.com/KPouianou/paxpy.git
 cd paxpy
 pip install -e .
@@ -32,13 +35,23 @@ paxpy --base main --branch-a feat/payments --branch-b feat/auth --repo /path/to/
 Example output:
 
 ```
-CONFLICT  DATA_FLOW  tier=1  direction=B_to_A
-  path: decode_payload (A) -> handle_request (B)
-  A changed decode_payload to return a dict.
-  B added handle_request which calls .split() on the return value.
+paxpy v0.4.0: 2 conflict(s) detected.
+
+────────────────────────────────────────────────────────────
+[!!]   #1  Data Flow  B→A  [Tier 1]  INCOMPATIBLE
+  Source : src/payments/processor.py  process_payment
+  Sink   : src/auth/validator.py  validate_token
+  Path   : 3 node(s)
+  Note   : Source returns dict but sink calls .split() on the value.
+
+────────────────────────────────────────────────────────────
+[OA]   #2  Override Assignment  A→B  [Tier 1]  INCOMPATIBLE
+  Source : src/config.py  setup
+  Sink   : src/config.py  setup
+  Note   : Both branches assign different values to 'timeout'.
 ```
 
-Exit code 0 means no conflicts found. Any nonzero exit code means conflicts were detected or an error occurred.
+Exit codes: **0** = no conflicts, **1** = conflicts detected, **2** = error.
 
 ## How it works
 
@@ -115,7 +128,8 @@ paxpy is designed to run in CI pipelines that check pairs of feature branches be
 
 Exit codes:
 - **0** -- no conflicts detected
-- **nonzero** -- conflicts detected or runtime error
+- **1** -- conflicts detected
+- **2** -- runtime error (bad arguments, missing repo, etc.)
 
 ## Development
 
