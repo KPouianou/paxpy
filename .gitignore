@@ -27,9 +27,14 @@ coverage.xml
 *.log
 .DS_Store
 
-# Internal project documents — not for public repo
+# Internal project documents
 paxpy_whitepaper*.md
+prototype_*.py
 
 # Benchmark artifacts
 bench/bench.db
+bench/benchmark.db
 bench/reports/
+
+# Python version manager
+.python-version

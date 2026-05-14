@@ -334,6 +334,13 @@ def main() -> None:
 
     repo_path = args.repo.resolve()
 
+    if not repo_path.is_dir():
+        print(f"paxpy: error: repository path does not exist: {repo_path}", file=sys.stderr)
+        sys.exit(2)
+    if not (repo_path / ".git").exists():
+        print(f"paxpy: error: not a git repository: {repo_path}", file=sys.stderr)
+        sys.exit(2)
+
     # Lazy imports so startup is fast when --help is used
     from paxpy.detector import detect, filter_by_call_hops
     from paxpy.diff_parser import parse_diffs
@@ -482,3 +489,6 @@ def main() -> None:
             print(json.dumps(format_json(reports), indent=2))
         case "sarif":
             print(json.dumps(format_sarif(reports), indent=2))
+
+    # Exit 1 when conflicts found (like grep behavior for CI integration)
+    sys.exit(1 if reports else 0)
