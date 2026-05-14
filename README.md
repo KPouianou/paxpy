@@ -1,143 +1,148 @@
 # paxpy
 
-Detects **semantic merge conflicts** in Python repositories. Two branches can each pass their own tests and merge cleanly at the text level, yet still break each other's assumptions at runtime. paxpy finds those conflicts before they reach production.
+Detect semantic merge conflicts in Python repositories before they reach production.
 
-## How it works
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
-paxpy builds a partial **System Dependence Graph (SDG)** seeded from the git diff of two branches, expands it through the call graph to a bounded depth, and detects interference between the two changesets via **approximate program chopping**.
+## What is a semantic merge conflict?
 
-```
-git diff (branch A vs base, branch B vs base)
-         ↓
-   seed nodes — functions changed by each branch
-         ↓
-   BFS expansion — call graph up to depth N
-         ↓
-   SDG — data edges + call edges + control edges
-         ↓
-   approximate chop — forward from A ∩ backward from B
-         ↓
-   interference paths → conflict report
-```
-
-Detection runs in two tiers:
-
-| Tier | Edges used | Conflict types found |
-|------|-----------|----------------------|
-| 1 | data + call | DATA_FLOW, CONFLUENCE, OVERRIDE_ASSIGNMENT |
-| 2 | data + call + control | CONTROL_DEPENDENCY (new findings only) |
-
-**No external analysis frameworks.** Everything uses Python's `ast` module. Runtime dependencies: Python 3.10+ stdlib and GitPython.
+Two branches can each pass their own tests and merge cleanly at the text level, yet still break each other's assumptions at runtime. For example, branch A changes `decode_payload()` to return a `dict` instead of a `str`, while branch B adds `handle_request()` which calls `.split()` on the return value of `decode_payload()`. Git merges them without a conflict, but the combined code crashes. paxpy finds these conflicts statically, before the merge.
 
 ## Installation
 
 ```bash
-pip install -e .          # core tool
-pip install -e ".[bench]" # + benchmark harness (requires rich)
+# From PyPI (coming soon)
+pip install paxpy
+
+# From source
+git clone https://github.com/KPouianou/paxpy.git
+cd paxpy
+pip install -e .
 ```
 
-Requires Python 3.10+.
+Requires Python 3.10+ and Git. The only runtime dependency is [GitPython](https://github.com/gitpython-developers/GitPython).
 
-## Usage
+## Quick start
 
 ```bash
 paxpy --base main --branch-a feat/payments --branch-b feat/auth --repo /path/to/repo
 ```
 
-```
-Options:
-  --repo PATH       Path to git repository (default: current directory)
-  --base BRANCH     Common ancestor branch
-  --branch-a BRANCH First feature branch
-  --branch-b BRANCH Second feature branch
-  --depth N         Call-graph expansion depth (default: 5)
-  --format          Output format: cli | json | sarif (default: cli)
-```
-
-### Example output
+Example output:
 
 ```
 CONFLICT  DATA_FLOW  tier=1  direction=B_to_A
-  path: decode_payload (A) → handle_request (B)
+  path: decode_payload (A) -> handle_request (B)
   A changed decode_payload to return a dict.
   B added handle_request which calls .split() on the return value.
 ```
 
-## Conflict taxonomy
+Exit code 0 means no conflicts found. Any nonzero exit code means conflicts were detected or an error occurred.
 
-| Type | What it is |
-|------|-----------|
-| `DATA_FLOW` | A writes a value B reads (producer return type changes, consumer does arithmetic on it) |
-| `CONFLUENCE` | A and B both flow into the same downstream sink with incompatible contributions |
-| `OVERRIDE_ASSIGNMENT` | B overwrites a variable that A's callee just wrote, discarding the result |
-| `CONTROL_DEPENDENCY` | B changes a guard predicate that controls whether A's code executes |
+## How it works
 
-Based on Santos de Jesus et al. ICSE 2024 and Horwitz/Prins/Reps TOPLAS 1989.
+paxpy builds a partial **System Dependence Graph (SDG)** seeded from the git diff of two branches against their common ancestor. It expands through the call graph to a bounded depth, then detects interference between the two changesets. The analysis uses only Python's built-in `ast` module -- no external type checkers or analysis frameworks.
 
-## Benchmark
+For a detailed walkthrough of the architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-The `paxpy-bench` CLI runs paxpy against a synthetic evaluation harness stored in SQLite.
+## Detectors
 
-```bash
-paxpy-bench seed                        # populate database (idempotent)
-paxpy-bench run --bucket correctness    # run 720 parametric scenarios
-paxpy-bench run --bucket adversarial    # run 10 hand-crafted edge cases
-paxpy-bench run --bucket performance    # run SDG scalability scenarios
-paxpy-bench report --md                 # terminal report + markdown file
-paxpy-bench clean --confirm             # reset database
+paxpy ships with two detection algorithms:
+
+| Detector | Flag | Best for |
+|----------|------|----------|
+| **neighborhood** (default) | `--detector neighborhood` | Lower false-positive rate. Checks whether modifications from both branches overlap within a configurable radius in the SDG. |
+| **chop** | `--detector chop` | Higher recall. Performs approximate program chopping (forward from A, backward from B, intersect). May produce more false positives on large codebases. |
+
+Use `--radius N` to tune the neighborhood detector (default: 1). Use `--max-call-hops N` to limit how many call boundaries a chop path may cross (default: 2).
+
+## Output formats
+
+| Format | Flag | Description |
+|--------|------|-------------|
+| CLI | `--format cli` | Human-readable terminal output (default) |
+| JSON | `--format json` | Machine-readable JSON array |
+| SARIF | `--format sarif` | Static Analysis Results Interchange Format, for integration with GitHub Code Scanning and other tools |
+
+## CLI reference
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--repo PATH` | No | `.` | Path to the git repository |
+| `--base BRANCH` | Yes | -- | Common ancestor branch (e.g. `main`) |
+| `--branch-a BRANCH` | Yes | -- | First feature branch |
+| `--branch-b BRANCH` | Yes | -- | Second feature branch |
+| `--depth N` | No | `3` | Call-graph expansion depth (number of call boundaries to cross) |
+| `--max-call-hops N` | No | `2` | Suppress paths crossing more than N call boundaries (chop detector) |
+| `--format FORMAT` | No | `cli` | Output format: `cli`, `json`, or `sarif` |
+| `--detector ALGO` | No | `neighborhood` | Detection algorithm: `neighborhood` or `chop` |
+| `--radius N` | No | `1` | Neighborhood radius (neighborhood detector only) |
+| `--no-mod-relevance-filter` | No | off | Disable the modification-relevance filter for SDG paths |
+
+## Conflict types
+
+paxpy detects four types of semantic merge conflicts, based on the taxonomy from Santos de Jesus et al. (ICSE 2024) and Horwitz/Prins/Reps (TOPLAS 1989):
+
+| Type | Description |
+|------|-------------|
+| `DATA_FLOW` | One branch writes a value that the other branch reads. Classic producer-consumer interference. |
+| `CONFLUENCE` | Both branches write values that flow into the same downstream computation with incompatible contributions. |
+| `OVERRIDE_ASSIGNMENT` | One branch overwrites a variable that the other branch's code just wrote, silently discarding the result. |
+| `CONTROL_DEPENDENCY` | One branch changes a guard predicate (if/while/for condition) that controls whether the other branch's code executes. |
+
+## CI integration
+
+paxpy is designed to run in CI pipelines that check pairs of feature branches before merging.
+
+```yaml
+# GitHub Actions example
+- name: Check for semantic merge conflicts
+  run: |
+    pip install paxpy
+    paxpy --base main \
+          --branch-a ${{ github.head_ref }} \
+          --branch-b target-branch \
+          --format sarif \
+          > paxpy-results.sarif
+
+- name: Upload SARIF results
+  if: always()
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: paxpy-results.sarif
 ```
 
-### Current results (synthetic benchmark, depth=5)
-
-| Metric | Value |
-|--------|-------|
-| Precision | **100%** — no false positives, including under name-ambiguity pressure |
-| Recall | **65%** |
-| F1 | **78.8%** |
-| Adversarial | **10/10** (100% F1) |
-| Baseline (ICSE 2024, Java) | F1 = 0.50 |
-
-The 35% recall gap has two known causes:
-
-- **CD=7 scenarios (54 FNs):** The conflict is 7 call hops deep; the `depth=5` cap stops expansion before reaching it. Run with `--depth 7` to close this gap.
-- **CONTROL_DEPENDENCY at depth ≥ 2 (72 FNs):** Transitive control dependencies through intermediate call chains are not yet detected. A direct guard-on-callee (depth=1) is detected correctly. Fix is in progress in `pdg_builder.py`.
-
-Excluding these two known gaps: **recall = 100%** on all DATA_FLOW, CONFLUENCE, and OVERRIDE_ASSIGNMENT scenarios.
+Exit codes:
+- **0** -- no conflicts detected
+- **nonzero** -- conflicts detected or runtime error
 
 ## Development
 
 ```bash
-# Run tests
-pytest
+# Install with dev dependencies
+pip install -e ".[dev]"
 
-# Lint / format
-ruff check src/ tests/
-ruff format src/ tests/
+# Run tests
+pytest tests/
 
 # Run integration tests only
 pytest tests/integration/ -m integration
+
+# Lint and format
+ruff check src/ tests/
+ruff format src/ tests/
 ```
 
-A `.venv/` is present at the repo root (Python 3.14.3). Activate with `source .venv/bin/activate`.
-
-## Architecture
-
-```
-types.py              shared dataclasses and NodeId
-diff_parser.py        git diff → seed FunctionLocations
-indexer.py            repo → FunctionIndex (name → locations, parsed ASTs)
-pdg_builder.py        FunctionDef → PDG (data + control edges)
-call_resolver.py      ast.Call × FunctionIndex → resolved targets
-sdg_builder.py        DiffResult × FunctionIndex → SDG (BFS expansion)
-detector.py           SDG → list[InterferencePath] (approximate chop)
-endpoint_analyzer.py  InterferencePath → CompatibilityResult
-reporter.py           ConflictReport → CLI / JSON / SARIF
-main.py               orchestration
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
 
 ## Known limitations
 
 - Python only (no Java, no TypeScript).
-- Name-based call resolution: two functions with the same name in different files are treated as the same target (over-approximation). Real imports are not parsed.
-- Decorator-chain rebinding, generator exhaustion, comprehension scoping, and protocol drift from duck typing are out of scope for the current taxonomy.
-- CONTROL_DEPENDENCY detection is limited to direct guard-on-callee relationships (depth=1). Deeper chains are missed pending a `pdg_builder.py` fix.
+- Name-based call resolution: functions with the same name in different files are treated as the same target (over-approximation). Import paths are not resolved.
+- CONTROL_DEPENDENCY detection is limited to direct guard-on-callee relationships. Deeper transitive control chains are not yet detected.
+- Decorator chains, generator exhaustion, comprehension scoping, and protocol drift from duck typing are out of scope.
+
+## License
+
+Apache 2.0. See [LICENSE](LICENSE) for the full text.
