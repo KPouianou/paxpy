@@ -4,23 +4,44 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paxpy"
-version = "0.3.0"
-description = "Detects semantic merge conflicts via partial System Dependence Graphs and approximate program chopping"
+version = "0.4.0"
+description = "Detect semantic merge conflicts in Python via program dependence graph analysis"
+readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.10"
+authors = [
+    {name = "Konstantinos Pouianou"},
+]
+keywords = ["semantic-merge-conflict", "program-analysis", "sdg", "python-ast", "merge", "git"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Version Control :: Git",
+]
 dependencies = [
     "gitpython",
 ]
 
-[project.scripts]
-paxpy       = "paxpy.__main__:main"
-paxpy-bench = "bench.cli:main"
+[project.urls]
+Homepage = "https://github.com/KPouianou/paxpy"
+Issues = "https://github.com/KPouianou/paxpy/issues"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/paxpy", "bench"]
+[project.scripts]
+paxpy = "paxpy.__main__:main"
 
 [project.optional-dependencies]
 dev   = ["pytest", "ruff"]
 bench = ["rich>=13.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paxpy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests/integration"]
