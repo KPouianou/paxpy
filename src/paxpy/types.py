@@ -173,6 +173,7 @@ class InterferencePath:
     path_nodes: list[NodeId] = field(default_factory=list)
     source_node: NodeId = ""
     sink_node: NodeId = ""
+    evidence: dict | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -194,3 +195,4 @@ class ConflictReport:
     sink_function: str = ""
     source_file: str = ""
     sink_file: str = ""
+    evidence: dict | None = field(default=None, repr=False)

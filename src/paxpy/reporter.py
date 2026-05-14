@@ -106,22 +106,23 @@ def format_json(reports: list[ConflictReport]) -> dict:
     for report in reports:
         ip = report.interference
         cr = report.compatibility
-        conflicts.append(
-            {
-                "direction": ip.direction,
-                "conflict_type": ip.conflict_type.value,
-                "tier": ip.tier,
-                "source_node": ip.source_node,
-                "sink_node": ip.sink_node,
-                "path_length": len(ip.path_nodes),
-                "source_function": report.source_function,
-                "sink_function": report.sink_function,
-                "source_file": report.source_file,
-                "sink_file": report.sink_file,
-                "compatibility": cr.compatibility.value,
-                "explanation": cr.explanation,
-            }
-        )
+        entry = {
+            "direction": ip.direction,
+            "conflict_type": ip.conflict_type.value,
+            "tier": ip.tier,
+            "source_node": ip.source_node,
+            "sink_node": ip.sink_node,
+            "path_length": len(ip.path_nodes),
+            "source_function": report.source_function,
+            "sink_function": report.sink_function,
+            "source_file": report.source_file,
+            "sink_file": report.sink_file,
+            "compatibility": cr.compatibility.value,
+            "explanation": cr.explanation,
+        }
+        if report.evidence:
+            entry["evidence"] = report.evidence
+        conflicts.append(entry)
     return {
         "version": __version__,
         "conflict_count": len(reports),
