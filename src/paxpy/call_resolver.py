@@ -173,11 +173,7 @@ def _resolve_self_method(
         # miss inherited methods from unparsed/external base classes
         return None
 
-    result = [
-        loc
-        for loc in all_candidates
-        if (loc.filepath, loc.lineno) in valid_locations
-    ]
+    result = [loc for loc in all_candidates if (loc.filepath, loc.lineno) in valid_locations]
     return result if result else None
 
 
@@ -210,9 +206,7 @@ def _ast_name(node: ast.expr) -> str | None:
     return None
 
 
-def _find_class_in_index(
-    class_name: str, index: FunctionIndex
-) -> tuple[ast.ClassDef, Path] | None:
+def _find_class_in_index(class_name: str, index: FunctionIndex) -> tuple[ast.ClassDef, Path] | None:
     """Search parsed ASTs for a ClassDef with the given name.
 
     Maintains a cache on the index object itself (``_class_cache``) so that
@@ -224,9 +218,7 @@ def _find_class_in_index(
     """
     # Attach a lazy cache directly to the index object.  FunctionIndex is a
     # plain dataclass without __slots__, so dynamic attributes are allowed.
-    cache: dict[str, tuple[ast.ClassDef, Path] | None] = getattr(
-        index, "_class_cache", {}
-    )
+    cache: dict[str, tuple[ast.ClassDef, Path] | None] = getattr(index, "_class_cache", {})
     cached_size: int = getattr(index, "_class_cache_size", 0)
 
     current_size = len(index.parsed_asts)
@@ -242,8 +234,12 @@ def _find_class_in_index(
                 if isinstance(node, ast.ClassDef):
                     # First occurrence wins; don't overwrite earlier finds.
                     cache.setdefault(node.name, (node, filepath))
-        object.__setattr__(index, "_class_cache", cache) if hasattr(type(index), "__slots__") else setattr(index, "_class_cache", cache)
-        object.__setattr__(index, "_class_cache_size", current_size) if hasattr(type(index), "__slots__") else setattr(index, "_class_cache_size", current_size)
+        object.__setattr__(index, "_class_cache", cache) if hasattr(
+            type(index), "__slots__"
+        ) else setattr(index, "_class_cache", cache)
+        object.__setattr__(index, "_class_cache_size", current_size) if hasattr(
+            type(index), "__slots__"
+        ) else setattr(index, "_class_cache_size", current_size)
 
     return cache.get(class_name)
 
@@ -373,8 +369,10 @@ def _path_matches_module(filepath: Path, module_dotted: str) -> bool:
     if len(fp_parts) < len(parts):
         return False
     # Compare the tail of the path
-    file_tail = [p.removesuffix(".py") if i == len(parts) - 1 else p
-                 for i, p in enumerate(fp_parts[-(len(parts)):])]
+    file_tail = [
+        p.removesuffix(".py") if i == len(parts) - 1 else p
+        for i, p in enumerate(fp_parts[-(len(parts)) :])
+    ]
     return file_tail == parts
 
 

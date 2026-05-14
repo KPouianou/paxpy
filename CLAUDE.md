@@ -42,6 +42,7 @@ Each module is implemented on its own branch and merged via PR:
 | `impl/endpoint-analyzer` | `endpoint_analyzer.py` + `test_endpoint_analyzer.py` |
 | `impl/reporter` | `reporter.py` + `test_reporter.py` |
 | `impl/wire-up` | `main.py` final wiring + integration tests |
+| `impl/direct-detector` | `direct_detector.py` + `test_direct_detector.py` |
 
 Branch off `main`. PRs merge into `main`. Tier-1 branches (`diff-parser`, `indexer`, `pdg-builder`) can be opened in parallel. `impl/call-resolver` branches off after `impl/indexer` is merged. `impl/sdg-builder` branches off after all tier-1 PRs are merged.
 
@@ -63,6 +64,7 @@ types.py          ← everything depends on this
 diff_parser.py    ← depends only on types
 indexer.py        ← depends only on types
 pdg_builder.py    ← depends only on types
+direct_detector.py ← depends only on types
     ↑
 call_resolver.py  ← depends on types, indexer
     ↑
@@ -141,6 +143,15 @@ main.py           ← orchestrates all modules
 
 - **Input**: `list[ConflictReport]` (which combines InterferencePath + CompatibilityResult)
 - **Output**: formatted string (CLI), dict (JSON), or SARIF dict.
+
+### direct_detector.py
+
+- **Input**: `DiffResult` (containing seeds with populated `ast_node` fields)
+- **Output**: `list[InterferencePath]` — paths for OVERRIDE_ASSIGNMENT and signature_body_mismatch patterns
+- Compares AST nodes from each branch's seeds directly, without SDG traversal.
+- Three checks: same-function signature mismatch, cross-function call signature mismatch, override assignment.
+- The OA check includes a control-flow exclusivity filter that suppresses false positives where both branches' assignments are in mutually exclusive branches (opposite arms of the same `if/else`, complement predicates like `if x` vs `if not x`). Uses AST walking, not PDG.
+- Paths use synthetic NodeIds (not in any SDG) and bypass endpoint analysis in main.py.
 
 ---
 

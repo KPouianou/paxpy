@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from bench.run.heuristics import (
     HEURISTICS,
     _changed_files,
@@ -18,10 +16,10 @@ from bench.run.heuristics import (
     same_function,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper: _changed_files
 # ---------------------------------------------------------------------------
+
 
 def test_changed_files_identical():
     base = {"a.py": "x = 1"}
@@ -50,6 +48,7 @@ def test_changed_files_deleted():
 # ---------------------------------------------------------------------------
 # Helper: _changed_function_names
 # ---------------------------------------------------------------------------
+
 
 def test_changed_function_names_no_change():
     src = "def foo():\n    return 1\n"
@@ -84,6 +83,7 @@ def test_changed_function_names_multi():
 # Helper: _changed_lines
 # ---------------------------------------------------------------------------
 
+
 def test_changed_lines_identical():
     src = "a\nb\nc\n"
     assert _changed_lines(src, src) == set()
@@ -104,6 +104,7 @@ def test_changed_lines_appended():
 # ---------------------------------------------------------------------------
 # Helper: _imported_modules
 # ---------------------------------------------------------------------------
+
 
 def test_imported_modules_import():
     src = "import os\nimport sys\n"
@@ -129,6 +130,7 @@ def test_imported_modules_none():
 # H4: any_shared_file
 # ---------------------------------------------------------------------------
 
+
 def test_h4_both_touch_same_file():
     base = {"m.py": "x = 1"}
     a = {"m.py": "x = 2"}
@@ -146,7 +148,7 @@ def test_h4_different_files():
 def test_h4_only_a_changes():
     base = {"m.py": "x = 1"}
     a = {"m.py": "x = 2"}
-    b = {"m.py": "x = 1"}   # no change from base
+    b = {"m.py": "x = 1"}  # no change from base
     assert any_shared_file(base, a, b) is False
 
 
@@ -154,24 +156,25 @@ def test_h4_only_a_changes():
 # H1: same_function
 # ---------------------------------------------------------------------------
 
+
 def test_h1_both_touch_same_function():
     base = {"m.py": "def foo():\n    return 1\ndef bar():\n    return 2\n"}
-    a    = {"m.py": "def foo():\n    return 99\ndef bar():\n    return 2\n"}
-    b    = {"m.py": "def foo():\n    return 42\ndef bar():\n    return 2\n"}
+    a = {"m.py": "def foo():\n    return 99\ndef bar():\n    return 2\n"}
+    b = {"m.py": "def foo():\n    return 42\ndef bar():\n    return 2\n"}
     assert same_function(base, a, b) is True
 
 
 def test_h1_different_functions():
     base = {"m.py": "def foo():\n    return 1\ndef bar():\n    return 2\n"}
-    a    = {"m.py": "def foo():\n    return 99\ndef bar():\n    return 2\n"}
-    b    = {"m.py": "def foo():\n    return 1\ndef bar():\n    return 42\n"}
+    a = {"m.py": "def foo():\n    return 99\ndef bar():\n    return 2\n"}
+    b = {"m.py": "def foo():\n    return 1\ndef bar():\n    return 42\n"}
     assert same_function(base, a, b) is False
 
 
 def test_h1_different_files():
     base = {"a.py": "def foo():\n    return 1\n", "b.py": "def foo():\n    return 1\n"}
-    a    = {"a.py": "def foo():\n    return 99\n", "b.py": "def foo():\n    return 1\n"}
-    b    = {"a.py": "def foo():\n    return 1\n", "b.py": "def foo():\n    return 99\n"}
+    a = {"a.py": "def foo():\n    return 99\n", "b.py": "def foo():\n    return 1\n"}
+    b = {"a.py": "def foo():\n    return 1\n", "b.py": "def foo():\n    return 99\n"}
     # Both touch a function named 'foo', but in different files → no shared file conflict
     assert same_function(base, a, b) is False
 
@@ -179,20 +182,26 @@ def test_h1_different_files():
 def test_h1_no_conflict_no_change():
     base = {"m.py": "def foo():\n    return 1\n"}
     # b makes no change
-    assert same_function(base, {"m.py": "def foo():\n    return 2\n"}, {"m.py": "def foo():\n    return 1\n"}) is False
+    assert (
+        same_function(
+            base, {"m.py": "def foo():\n    return 2\n"}, {"m.py": "def foo():\n    return 1\n"}
+        )
+        is False
+    )
 
 
 # ---------------------------------------------------------------------------
 # H2: diff_proximity
 # ---------------------------------------------------------------------------
 
+
 def test_h2_within_5():
-    base   = {"m.py": "\n".join(f"x{i} = {i}" for i in range(20))}
+    base = {"m.py": "\n".join(f"x{i} = {i}" for i in range(20))}
     # A changes line 5, B changes line 7 → distance 2
     a_lines = base["m.py"].splitlines()
     b_lines = base["m.py"].splitlines()
-    a_lines[4] = "x4 = 99"   # line 5
-    b_lines[6] = "x6 = 99"   # line 7
+    a_lines[4] = "x4 = 99"  # line 5
+    b_lines[6] = "x6 = 99"  # line 7
     a = {"m.py": "\n".join(a_lines)}
     b = {"m.py": "\n".join(b_lines)}
     assert diff_proximity(base, a, b, 5) is True
@@ -203,7 +212,7 @@ def test_h2_outside_5_inside_25():
     base = {"m.py": "\n".join(base_lines)}
     a_lines = base_lines[:]
     b_lines = base_lines[:]
-    a_lines[0] = "x0 = 99"   # line 1
+    a_lines[0] = "x0 = 99"  # line 1
     b_lines[10] = "x10 = 99"  # line 11 → distance 10
     a = {"m.py": "\n".join(a_lines)}
     b = {"m.py": "\n".join(b_lines)}
@@ -213,8 +222,8 @@ def test_h2_outside_5_inside_25():
 
 def test_h2_different_files():
     base = {"a.py": "x = 1", "b.py": "y = 1"}
-    a    = {"a.py": "x = 2", "b.py": "y = 1"}
-    b    = {"a.py": "x = 1", "b.py": "y = 2"}
+    a = {"a.py": "x = 2", "b.py": "y = 1"}
+    b = {"a.py": "x = 1", "b.py": "y = 2"}
     # Changes are in different files, so no proximity hit
     assert diff_proximity(base, a, b, 50) is False
 
@@ -222,6 +231,7 @@ def test_h2_different_files():
 # ---------------------------------------------------------------------------
 # H3: import_overlap
 # ---------------------------------------------------------------------------
+
 
 def test_h3_a_imports_b_changed_module():
     base = {
@@ -252,8 +262,8 @@ def test_h3_no_import_relation():
 
 def test_h3_single_file_always_false():
     base = {"m.py": "def foo():\n    return 1\n"}
-    a    = {"m.py": "def foo():\n    return 2\n"}
-    b    = {"m.py": "def foo():\n    return 3\n"}
+    a = {"m.py": "def foo():\n    return 2\n"}
+    b = {"m.py": "def foo():\n    return 3\n"}
     assert import_overlap(base, a, b) is False
 
 
@@ -264,6 +274,7 @@ def test_h3_single_file_always_false():
 # ---------------------------------------------------------------------------
 # Helper: _extract_call_names
 # ---------------------------------------------------------------------------
+
 
 def test_extract_call_names_basic():
     body = "def foo():\n    return bar()\n"
@@ -287,6 +298,7 @@ def test_extract_call_names_multi():
 # H5: call_graph_1hop
 # ---------------------------------------------------------------------------
 
+
 def test_h5_direct_caller_callee():
     """B changes a consumer that directly calls A's changed producer → H5 fires."""
     base = {
@@ -308,9 +320,7 @@ def test_h5_deep_chain_misses():
 
 def test_h5_no_shared_functions():
     """Both branches change unrelated functions with no call relationship."""
-    base = {
-        "m.py": "def foo():\n    return 1\n\ndef bar():\n    return 2\n"
-    }
+    base = {"m.py": "def foo():\n    return 1\n\ndef bar():\n    return 2\n"}
     a = {"m.py": "def foo():\n    return 99\n\ndef bar():\n    return 2\n"}
     b = {"m.py": "def foo():\n    return 1\n\ndef bar():\n    return 99\n"}
     assert call_graph_1hop(base, a, b) is False
@@ -349,8 +359,8 @@ def test_heuristics_registry_complete():
 
 def test_heuristics_registry_callable():
     base = {"m.py": "def foo():\n    return 1\n"}
-    a    = {"m.py": "def foo():\n    return 2\n"}
-    b    = {"m.py": "def foo():\n    return 1\n"}
+    a = {"m.py": "def foo():\n    return 2\n"}
+    b = {"m.py": "def foo():\n    return 1\n"}
     for name, fn in HEURISTICS.items():
         result = fn(base, a, b)
         assert isinstance(result, bool), f"{name} should return bool"

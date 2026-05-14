@@ -35,14 +35,14 @@ from paxpy.types import (
 )
 
 
-def detect_interferences(sdg: SDG, radius: int = 2) -> list[InterferencePath]:
+def detect_interferences(sdg: SDG, radius: int = 1) -> list[InterferencePath]:
     """Detect semantic merge conflicts via neighborhood overlap.
 
     Args:
         sdg: Fully constructed partial SDG from sdg_builder.
         radius: Maximum number of hops (any edge type, any direction) to
             expand from directly-modified nodes. Smaller values reduce false
-            positives; larger values increase recall.
+            positives; larger values increase recall. Default is 1.
 
     Returns:
         List of InterferencePath objects, one per overlapping node. Each path
@@ -95,9 +95,7 @@ def detect_interferences(sdg: SDG, radius: int = 2) -> list[InterferencePath]:
         seen_pairs.add(pair_key)
 
         overlap_node = sdg.nodes.get(overlap_id)
-        conflict_type = _infer_conflict_type(
-            overlap_id, overlap_node, sdg, direct_a, direct_b
-        )
+        conflict_type = _infer_conflict_type(overlap_id, overlap_node, sdg, direct_a, direct_b)
 
         path = InterferencePath(
             direction="A_to_B",
@@ -227,7 +225,6 @@ def _infer_conflict_type(
     3. CONFLUENCE — overlap node has incoming data edges from *both* M_A and M_B.
     4. DATA_FLOW — default (one side writes, the other reads through the node).
     """
-    import ast as _ast
 
     if overlap_node is not None and overlap_node.is_direct_modification:
         # The overlap node itself was modified by one side; if both seeds reach

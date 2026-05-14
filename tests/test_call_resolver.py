@@ -50,9 +50,7 @@ def find_calls(tree: ast.AST, attr_name: str | None = None) -> list[ast.Call]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if attr_name is None:
-            calls.append(node)
-        elif (
+        if attr_name is None or (
             isinstance(node.func, ast.Attribute)
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == "self"
@@ -277,10 +275,7 @@ def test_self_method_with_base_class_includes_inherited_method():
     """
     tree = parse_with_parents(source)
 
-    base_def = next(
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.ClassDef) and n.name == "Base"
-    )
+    base_def = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "Base")
     validate_in_base = next(
         n
         for n in ast.iter_child_nodes(base_def)
@@ -382,14 +377,12 @@ def test_import_scoped_resolves_to_imported_module(tmp_path: Path):
     utils_file.write_text(textwrap.dedent(utils_src))
     caller_file.write_text(textwrap.dedent(caller_src))
 
-    index = _make_file_index_with_source(
-        {utils_file: utils_src, caller_file: caller_src}
-    )
+    index = _make_file_index_with_source({utils_file: utils_src, caller_file: caller_src})
     # Also add an unrelated process in another file to confirm narrowing
     other_file = tmp_path / "other.py"
     other_src = "def process(): pass\n"
     other_file.write_text(other_src)
-    other_tree = parse_with_parents(other_src)
+    parse_with_parents(other_src)  # ensure parseable
     other_loc = FunctionLocation(
         name="process",
         filepath=other_file,
@@ -402,9 +395,7 @@ def test_import_scoped_resolves_to_imported_module(tmp_path: Path):
     [call] = [
         n
         for n in ast.walk(caller_tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Name)
-        and n.func.id == "process"
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "process"
     ]
     result = resolve_call(call, index, caller_file)
 
@@ -431,12 +422,8 @@ def test_same_file_local_definition_comes_first():
     local_file = Path("/repo/mymod.py")
     other_file = Path("/repo/other.py")
 
-    loc_local = FunctionLocation(
-        name="process", filepath=local_file, lineno=1, end_lineno=5
-    )
-    loc_other = FunctionLocation(
-        name="process", filepath=other_file, lineno=1, end_lineno=5
-    )
+    loc_local = FunctionLocation(name="process", filepath=local_file, lineno=1, end_lineno=5)
+    loc_other = FunctionLocation(name="process", filepath=other_file, lineno=1, end_lineno=5)
 
     index = make_index_with_locs(loc_local, loc_other)
 

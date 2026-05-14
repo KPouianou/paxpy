@@ -79,10 +79,7 @@ def build_sdg(
         # loc.ast_node comes from diff_parser which parses its own private AST
         # without parent pointers, so it cannot be used for self.foo() resolution.
         tree = index.ensure_parsed(loc.filepath)
-        if tree is not None:
-            func_node = _find_func_in_tree(tree, loc.lineno)
-        else:
-            func_node = None
+        func_node = _find_func_in_tree(tree, loc.lineno) if tree is not None else None
         if func_node is None:
             # Fallback: use the diff-parser node if the index can't find it
             func_node = loc.ast_node

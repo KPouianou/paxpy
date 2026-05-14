@@ -174,6 +174,13 @@ def _map_ranges_to_functions(
     except SyntaxError:
         return []
 
+    # Add parent pointers so downstream consumers (e.g. direct_detector)
+    # can walk up the AST to find enclosing class definitions.
+    tree._parent = None  # type: ignore[attr-defined]
+    for _node in ast.walk(tree):
+        for _child in ast.iter_child_nodes(_node):
+            _child._parent = _node  # type: ignore[attr-defined]
+
     seen: set[tuple[str, int]] = set()
     locations: list[FunctionLocation] = []
 
@@ -184,10 +191,7 @@ def _map_ranges_to_functions(
         func_start = node.lineno
         func_end = node.end_lineno if node.end_lineno is not None else node.lineno
 
-        func_ranges = [
-            (rs, re) for rs, re in ranges
-            if func_start <= re and func_end >= rs
-        ]
+        func_ranges = [(rs, re) for rs, re in ranges if func_start <= re and func_end >= rs]
         if func_ranges:
             key = (node.name, node.lineno)
             if key not in seen:
